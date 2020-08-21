@@ -32,8 +32,6 @@ void StaticHandler::onRequest(std::unique_ptr<HTTPMessage> headers) noexcept {
       .sendWithEOM();
     return;
   }
-  std::cout << headers->getPathAsStringPiece() << std::endl;
-  std::cout << headers->getPathAsStringPiece().subpiece(1) << std::endl;
 
   // a real webserver would validate this path didn't contain malicious
   // characters like '//' or '..'

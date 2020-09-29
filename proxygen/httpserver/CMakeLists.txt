@@ -69,28 +69,6 @@ install(
     DESTINATION bin
 )
 
-add_executable(fbtcp_webserver
-    fbtcp_webserver/StaticServer.cpp
-    fbtcp_webserver/StaticHandler.cpp
-)
-target_compile_options(
-    fbtcp_webserver
-    PRIVATE
-        ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
-)
-target_link_libraries(
-    fbtcp_webserver
-    PUBLIC
-        proxygen
-        proxygenhttpserver
-        -lstdc++fs
-)
-install(
-    TARGETS fbtcp_webserver
-    EXPORT proxygen-exports
-    DESTINATION bin
-)
-
 add_executable(proxygen_static
     samples/static/StaticServer.cpp
     samples/static/StaticHandler.cpp
@@ -161,6 +139,51 @@ if (BUILD_QUIC)
   )
   install(
       TARGETS hq
+      EXPORT proxygen-exports
+      DESTINATION bin
+  )
+
+  include(FetchContent)
+
+  FetchContent_Declare(json
+    GIT_REPOSITORY https://github.com/ArthurSonzogni/nlohmann_json_cmake_fetchcontent.git
+    GIT_TAG v3.7.3)
+  FetchContent_GetProperties(json)
+  if(NOT json_POPULATED)
+    FetchContent_Populate(json)
+    add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
+
+  add_executable(fbtcp_webserver
+      samples/fbtcp_webserver/main.cpp
+      samples/fbtcp_webserver/FizzContext.cpp
+      samples/fbtcp_webserver/HQClient.cpp
+      samples/fbtcp_webserver/HQLoggerHelper.cpp
+      samples/fbtcp_webserver/HQServer.cpp
+      samples/fbtcp_webserver/HQParams.cpp
+      samples/fbtcp_webserver/SampleHandlers.cpp
+      samples/fbtcp_webserver/PartiallyReliableCurlClient.cpp
+      samples/fbtcp_webserver/TrafficGenerator.cpp
+  )
+  target_compile_options(
+      fbtcp_webserver
+      PRIVATE
+          ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
+  )
+  target_link_libraries(
+      fbtcp_webserver
+      PUBLIC
+          proxygen
+          proxygencurl
+          proxygenhttpserver
+          mvfst::mvfst_transport
+          mvfst::mvfst_client
+          mvfst::mvfst_server
+      PRIVATE
+        nlohmann_json::nlohmann_json
+  )
+  install(
+      TARGETS fbtcp_webserver
       EXPORT proxygen-exports
       DESTINATION bin
   )

@@ -76,28 +76,6 @@ install(
     DESTINATION bin
 )
 
-add_executable(fbtcp_webserver
-    fbtcp_webserver/StaticServer.cpp
-    fbtcp_webserver/StaticHandler.cpp
-)
-target_compile_options(
-    fbtcp_webserver
-    PRIVATE
-        ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
-)
-target_link_libraries(
-    fbtcp_webserver
-    PUBLIC
-        proxygen
-        proxygenhttpserver
-        -lstdc++fs
-)
-install(
-    TARGETS fbtcp_webserver
-    EXPORT proxygen-exports
-    DESTINATION bin
-)
-
 add_executable(proxygen_static
     samples/static/StaticServer.cpp
     samples/static/StaticHandler.cpp

@@ -78,6 +78,19 @@ bool CurlClient::saveResponseToFile(const std::string& outputFilename) {
   return false;
 }
 
+bool CurlClient::saveResponseToNull() {
+  std::streambuf* buf;
+  auto filename = std::string("/dev/null");
+  outputFile_ =
+      std::make_unique<ofstream>(filename, ios::out | ios::binary);
+  if (*outputFile_ && outputFile_->good()) {
+    buf = outputFile_->rdbuf();
+    outputStream_ = std::make_unique<std::ostream>(buf);
+    return true;
+  }
+  return false;
+}
+
 HTTPHeaders CurlClient::parseHeaders(const std::string& headersString) {
   vector<StringPiece> headersList;
   HTTPHeaders headers;

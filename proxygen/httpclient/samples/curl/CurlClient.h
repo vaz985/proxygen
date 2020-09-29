@@ -81,6 +81,8 @@ class CurlClient
 
   bool saveResponseToFile(const std::string& outputFilename);
 
+  bool saveResponseToNull();
+
   static proxygen::HTTPHeaders parseHeaders(const std::string& headersString);
 
   // initial SSL related structures

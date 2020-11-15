@@ -148,36 +148,23 @@ if (BUILD_QUIC)
       EXPORT proxygen-exports
       DESTINATION bin
   )
-
-  include(FetchContent)
-
-  FetchContent_Declare(json
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/nlohmann_json_cmake_fetchcontent.git
-    GIT_TAG v3.7.3)
-  FetchContent_GetProperties(json)
-  if(NOT json_POPULATED)
-    FetchContent_Populate(json)
-    add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
-  endif()
-
-  add_executable(fbtcp_webserver
-      samples/fbtcp_webserver/main.cpp
-      samples/fbtcp_webserver/FizzContext.cpp
-      samples/fbtcp_webserver/HQClient.cpp
-      samples/fbtcp_webserver/HQLoggerHelper.cpp
-      samples/fbtcp_webserver/HQServer.cpp
-      samples/fbtcp_webserver/HQParams.cpp
-      samples/fbtcp_webserver/SampleHandlers.cpp
-      samples/fbtcp_webserver/PartiallyReliableCurlClient.cpp
-      samples/fbtcp_webserver/TrafficGenerator.cpp
+  add_executable(fbtcp_trafficgen
+      samples/fbtcp_trafficgen/main.cpp
+      samples/fbtcp_trafficgen/FizzContext.cpp
+      samples/fbtcp_trafficgen/HQLoggerHelper.cpp
+      samples/fbtcp_trafficgen/HQParams.cpp
+      samples/fbtcp_trafficgen/SampleHandlers.cpp
+      samples/fbtcp_trafficgen/TrafficGenerator.cpp
+      samples/fbtcp_trafficgen/TGClient.cpp
+      samples/fbtcp_trafficgen/ConnHandler.cpp
   )
   target_compile_options(
-      fbtcp_webserver
+      fbtcp_trafficgen
       PRIVATE
           ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
   )
   target_link_libraries(
-      fbtcp_webserver
+      fbtcp_trafficgen
       PUBLIC
           proxygen
           proxygencurl
@@ -185,11 +172,9 @@ if (BUILD_QUIC)
           mvfst::mvfst_transport
           mvfst::mvfst_client
           mvfst::mvfst_server
-      PRIVATE
-        nlohmann_json::nlohmann_json
   )
   install(
-      TARGETS fbtcp_webserver
+      TARGETS fbtcp_trafficgen
       EXPORT proxygen-exports
       DESTINATION bin
   )

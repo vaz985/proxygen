@@ -62,9 +62,10 @@ void TrafficGenerator::start() {
   folly::EventBase evb;
   std::thread th([&] { evb.loopForever(); });
 
+  // Parsing traffic profile
   std::ifstream jsonFile(params_.trafficPath);
   std::stringstream jsonString;
-  jsonString << jsonFile.rdbuf(); 
+  jsonString << jsonFile.rdbuf();
   auto trafficCfg = folly::parseJson(jsonString.str());
   std::priority_queue<TrafficComponent> pq;
   for (auto it : trafficCfg["cross_traffic_components"]) {
@@ -73,6 +74,10 @@ void TrafficGenerator::start() {
     pq.emplace(name, rate);
   }
 
+  // Reuse generator
+  std::uniform_int_distribution<uint32_t> reuseDistrib(0, 100); 
+
+  // main loop
   uint32_t duration = params_.duration;
   TimePoint startTime = Clock::now();
   TimePoint endTime = startTime + std::chrono::seconds(duration);
@@ -85,11 +90,23 @@ void TrafficGenerator::start() {
 
     auto top = pq.top();
     std::this_thread::sleep_until(top.nextEvent);
-
     LOG(INFO) << "Requesting " << top.name_;
-    auto client = std::make_unique<TGClient>(params_, &evb);
-    client->start(top.url_);
-    createdClients.push_back(std::move(client));
+
+    if (!createdClients.empty() && createdClients.back()->isRunning()) {
+      LOG(INFO) << "Reusing last connection";
+      createdClients.back()->sendRequest(top.url_);
+    }
+    else {
+      LOG(INFO) << "Creating new connection";
+      auto client = std::make_unique<TGClient>(params_, &evb);
+      client->start(top.url_);
+      createdClients.push_back(std::move(client));
+    }
+
+    bool shouldClose = (reuseDistrib(gen) > params_.reuseProb) ? true : false;
+    if (shouldClose) {
+      createdClients.back()->close();
+    }
 
     pq.pop();
     top.updateEvent();
@@ -100,5 +117,4 @@ void TrafficGenerator::start() {
   th.join();
 }
 
-} // namespace samples
-} // namespace quic
+}} // namespace quic::samples

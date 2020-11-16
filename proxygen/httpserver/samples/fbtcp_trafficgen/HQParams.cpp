@@ -21,6 +21,7 @@
 DEFINE_uint32(numClients, 0, "");
 
 DEFINE_uint32(cid, 0, "");
+DEFINE_uint32(reuseProb, 100, "Connection reuse probability [0, 100]%");
 DEFINE_uint32(maxConcurrent, 1, "");
 DEFINE_string(trafficPath, "", "");
 DEFINE_uint32(duration, 10, "");
@@ -172,6 +173,7 @@ folly::Optional<quic::CongestionControlType> flagsToCongestionControlType(
 void initializeCommonSettings(HQParams& hqParams) {
   // New section
   hqParams.cid = FLAGS_cid;
+  hqParams.reuseProb = FLAGS_reuseProb;
   hqParams.numClients = FLAGS_numClients;
   hqParams.maxConcurrent = FLAGS_maxConcurrent;
   hqParams.trafficPath = FLAGS_trafficPath;

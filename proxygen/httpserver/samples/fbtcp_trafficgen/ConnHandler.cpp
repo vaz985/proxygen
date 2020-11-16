@@ -34,7 +34,6 @@ ConnHandler::ConnHandler(EventBase* evb,
                          const proxygen::URL* proxy,
                          const HTTPHeaders& headers,
                          const string& inputFilename,
-                         // std::atomic_uint& concurrentConns,
                          bool h2c,
                          unsigned short httpMajor,
                          unsigned short httpMinor)
@@ -42,7 +41,6 @@ ConnHandler::ConnHandler(EventBase* evb,
       httpMethod_(httpMethod),
       url_(url),
       inputFilename_(inputFilename),
-      // concurrentConns_(concurrentConns),
       h2c_(h2c),
       httpMajor_(httpMajor),
       httpMinor_(httpMinor) {
@@ -202,7 +200,6 @@ void ConnHandler::setupHeaders() {
 }
 
 void ConnHandler::sendRequest(HTTPTransaction* txn) {
-  // concurrentConns_++;
   txn_ = txn;
   setupHeaders();
   txn_->sendHeadersWithEOM(request_);
@@ -237,7 +234,6 @@ void ConnHandler::setTransaction(HTTPTransaction*) noexcept {
 }
 
 void ConnHandler::detachTransaction() noexcept {
-  // concurrentConns_--;
 }
 
 void ConnHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {

@@ -71,11 +71,14 @@ void TGClient::start(const proxygen::URL requestUrl) {
   quicClient_->start(session_);
 }
 
-void TGClient::connectSuccess() {
-  sendRequest(firstRequest);
-
+void TGClient::close() {
+  running = false;
   session_->drain();
   session_->closeWhenIdle();
+}
+
+void TGClient::connectSuccess() {
+  sendRequest(firstRequest);
 }
 
 void TGClient::onReplaySafe() {
@@ -100,6 +103,7 @@ TGClient::sendRequest(const proxygen::URL requestUrl) {
                                     params_.httpVersion.major,
                                     params_.httpVersion.minor);
 
+  LOG(INFO) << params_.logResponse;
   client->setLogging(params_.logResponse);
   auto txn = session_->newTransaction(client.get());
   if (!txn) {
@@ -107,7 +111,7 @@ TGClient::sendRequest(const proxygen::URL requestUrl) {
   }
   client->saveResponseToNull();
   client->sendRequest(txn);
-  curls_.emplace_back(std::move(client));
+  createdStreams.emplace_back(std::move(client));
   return txn;
 }
 

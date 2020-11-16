@@ -47,6 +47,7 @@ std::ostream& operator<<(std::ostream& o, const HQMode& m);
 struct HQParams {
   // New section
   uint32_t cid;
+  uint32_t reuseProb;
   uint32_t numClients;
   uint32_t maxConcurrent;
   std::string trafficPath;

@@ -33,9 +33,15 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
 
   void start(const proxygen::URL requestUrl);
 
- private:
+  void close();
+
+  bool isRunning() {
+    return running;
+  }
+
   proxygen::HTTPTransaction* sendRequest(const proxygen::URL requestUrl);
 
+ private:
   void connectSuccess() override;
 
   void onReplaySafe() override;
@@ -56,9 +62,11 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
 
   proxygen::HQUpstreamSession* session_;
 
-  std::list<std::unique_ptr<ConnHandler>> curls_;
+  std::list<std::unique_ptr<ConnHandler>> createdStreams;
 
   ConnCallbackState connState_{ConnCallbackState::NONE};
+
+  bool running{true};
 };
 
 } // namespace samples

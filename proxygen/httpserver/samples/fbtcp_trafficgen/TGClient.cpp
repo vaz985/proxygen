@@ -40,7 +40,6 @@ namespace quic { namespace samples {
 
 TGClient::TGClient(const HQParams params, folly::EventBase* evb)
     : params_(params), evb_(evb) {
-  cid_ = params.cid;
   if (params_.transportSettings.pacingEnabled) {
     pacingTimer_ = TimerHighRes::newTimer(
         evb_, params_.transportSettings.pacingTimerTickInterval);
@@ -66,7 +65,7 @@ void TGClient::start(const proxygen::URL requestUrl) {
   session_->setSocket(quicClient_);
   session_->setConnectCallback(this);
 
-  LOG(INFO) << "[CID " << cid_ << "] Connecting to "
+  LOG(INFO) << "[CID " << params_.cid << "] Connecting to "
             << params_.remoteAddress->describe();
   session_->startNow();
   quicClient_->start(session_);

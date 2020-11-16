@@ -26,11 +26,34 @@
 using Clock = std::chrono::high_resolution_clock;
 using TimePoint = std::chrono::time_point<Clock>;
 
-namespace quic {
+namespace quic { namespace samples {
 
-class QuicClientTransport;
+static std::random_device rd;
+static std::mt19937 gen(rd());
 
-namespace samples {
+// TODO: Make a enum for the gen type
+struct TrafficComponent {
+  TimePoint nextEvent;
+  std::string name_;
+  proxygen::URL url_;
+  double rate_;
+  std::exponential_distribution<double> distrib;
+
+  TrafficComponent(std::string name, double rate) : name_(name), rate_(rate) {
+    url_ = proxygen::URL(name, /*secure=*/true);
+    distrib = std::exponential_distribution<>(rate);
+    nextEvent = Clock::now();
+    updateEvent();
+  }
+
+  bool operator<(const TrafficComponent& rhs) const {
+    return nextEvent > rhs.nextEvent;
+  }
+
+  void updateEvent() {
+    nextEvent += std::chrono::milliseconds(int(1000 * distrib(gen)));
+  }
+};
 
 TrafficGenerator::TrafficGenerator(const HQParams& params) : params_(params) {
 }
@@ -38,6 +61,17 @@ TrafficGenerator::TrafficGenerator(const HQParams& params) : params_(params) {
 void TrafficGenerator::start() {
   folly::EventBase evb;
   std::thread th([&] { evb.loopForever(); });
+
+  std::ifstream jsonFile(params_.trafficPath);
+  std::stringstream jsonString;
+  jsonString << jsonFile.rdbuf(); 
+  auto trafficCfg = folly::parseJson(jsonString.str());
+  std::priority_queue<TrafficComponent> pq;
+  for (auto it : trafficCfg["cross_traffic_components"]) {
+    std::string name = it["name"].asString();
+    double rate = it["rate"].asDouble();
+    pq.emplace(name, rate);
+  }
 
   uint32_t duration = params_.duration;
   TimePoint startTime = Clock::now();
@@ -49,11 +83,17 @@ void TrafficGenerator::start() {
       break;
     }
 
-    proxygen::URL request("1024k.bin", /*secure*/ true);
+    auto top = pq.top();
+    std::this_thread::sleep_until(top.nextEvent);
+
+    LOG(INFO) << "Requesting " << top.name_;
     auto client = std::make_unique<TGClient>(params_, &evb);
-    client->start(request);
+    client->start(top.url_);
     createdClients.push_back(std::move(client));
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    pq.pop();
+    top.updateEvent();
+    pq.push(top);
   }
 
   evb.terminateLoopSoon();

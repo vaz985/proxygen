@@ -30,7 +30,7 @@ namespace quic { namespace samples {
 
 ConnHandler::ConnHandler(EventBase* evb,
                          HTTPMethod httpMethod,
-                         const proxygen::URL url,
+                         const proxygen::URL& url,
                          const proxygen::URL* proxy,
                          const HTTPHeaders& headers,
                          const string& inputFilename,
@@ -200,6 +200,7 @@ void ConnHandler::setupHeaders() {
 }
 
 void ConnHandler::sendRequest(HTTPTransaction* txn) {
+  startTime = Clock::now();
   txn_ = txn;
   setupHeaders();
   txn_->sendHeadersWithEOM(request_);
@@ -260,6 +261,21 @@ void ConnHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
 
 void ConnHandler::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
+
+  endTime = Clock::now();
+  rcvEOM = true;
+
+  // wangle::TransportInfo transportInfo;
+  // txn_->getCurrentTransportInfo(&transportInfo);
+  // auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+  //     endTime - startTime);
+  // auto seconds = elapsed.count() / double(1000);
+  // auto ingressBytes = transportInfo.totalBytes;
+  // LOG(INFO) << url_.getPath() << " request done\n"
+  //           << transportInfo.totalBytes / seconds << "B/s\n"
+  //           << seconds << "s\n"
+  //           << "totalBytes: " << transportInfo.totalBytes;
+  // LOG(INFO) << "Request done on " << elapsed.count() / double(1000) << "s";
 }
 
 void ConnHandler::onUpgrade(UpgradeProtocol) noexcept {

@@ -38,16 +38,17 @@ namespace quic { namespace samples {
 //   return std::string(buffer);
 // }
 
-TGClient::TGClient(const HQParams params, folly::EventBase* evb)
-    : params_(params), evb_(evb) {
+TGClient::TGClient(const HQParams params,
+                   folly::EventBase* evb,
+                   const proxygen::URL& requestUrl)
+    : params_(params), evb_(evb), firstRequest(requestUrl) {
   if (params_.transportSettings.pacingEnabled) {
     pacingTimer_ = TimerHighRes::newTimer(
         evb_, params_.transportSettings.pacingTimerTickInterval);
   }
 }
 
-void TGClient::start(const proxygen::URL requestUrl) {
-  firstRequest = requestUrl;
+void TGClient::start() {
 
   initializeQuicClient();
 
@@ -57,9 +58,6 @@ void TGClient::start(const proxygen::URL requestUrl) {
                                              nullptr, // controller
                                              tinfo,
                                              nullptr); // codecfiltercallback
-
-  // Need this for Interop since we use HTTP0.9
-  session_->setForceUpstream1_1(false);
 
   // TODO: this could now be moved back in the ctor
   session_->setSocket(quicClient_);
@@ -72,26 +70,45 @@ void TGClient::start(const proxygen::URL requestUrl) {
 }
 
 void TGClient::close() {
-  running = false;
+  if (connState_ == ConnCallbackState::NONE) {
+    LOG(ERROR) << "TODO: Check if this is problematic";
+  }
+  connState_ = ConnCallbackState::DONE;
   session_->drain();
   session_->closeWhenIdle();
 }
 
 void TGClient::connectSuccess() {
+  connState_ = ConnCallbackState::CONNECT_SUCCESS;
+  VLOG(1) << "connectSuccess";
   sendRequest(firstRequest);
 }
 
 void TGClient::onReplaySafe() {
-  VLOG(10) << "Transport replay safe";
+  connState_ = ConnCallbackState::REPLAY_SAFE;
+  VLOG(1) << "Transport replay safe";
 }
 
 void TGClient::connectError(std::pair<quic::QuicErrorCode, std::string> error) {
+  connState_ = ConnCallbackState::DONE;
   LOG(ERROR) << "TGClient failed to connect, error=" << toString(error.first)
              << ", msg=" << error.second;
 }
 
+static std::function<void()> selfSchedulingRequestRunner;
+
 proxygen::HTTPTransaction* FOLLY_NULLABLE
-TGClient::sendRequest(const proxygen::URL requestUrl) {
+TGClient::sendRequest(const proxygen::URL& requestUrl) {
+  if (connState_ == ConnCallbackState::DONE) {
+    return nullptr;
+  }
+  if (connState_ == ConnCallbackState::NONE) {
+    return nullptr;
+    // selfSchedulingRequestRunner = [&]() { sendRequest(requestUrl); };
+    // evb_->timer().scheduleTimeoutFn(selfSchedulingRequestRunner,
+    //                                 std::chrono::milliseconds(1000));
+  }
+
   std::unique_ptr<ConnHandler> client =
       std::make_unique<ConnHandler>(evb_,
                                     params_.httpMethod,
@@ -103,13 +120,21 @@ TGClient::sendRequest(const proxygen::URL requestUrl) {
                                     params_.httpVersion.major,
                                     params_.httpVersion.minor);
 
-  LOG(INFO) << params_.logResponse;
-  client->setLogging(params_.logResponse);
+  uint64_t numOpenableStreams =
+      quicClient_->getNumOpenableBidirectionalStreams();
+  uint32_t incomingStreams = session_->getNumIncomingStreams();
+  uint32_t outgoingStreams = session_->getNumOutgoingStreams();
+  VLOG(1) << "out streams: " << outgoingStreams;
+  VLOG(1) << "inc streams: " << incomingStreams;
+  VLOG(1) << "openable streams: " << numOpenableStreams;
+  VLOG(1) << "logging: " << params_.logResponse;
+  VLOG(1) << "path: " << requestUrl.getPath();
+
+  client->setLogging(false);
   auto txn = session_->newTransaction(client.get());
   if (!txn) {
     return nullptr;
   }
-  client->saveResponseToNull();
   client->sendRequest(txn);
   createdStreams.emplace_back(std::move(client));
   return txn;

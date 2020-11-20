@@ -14,6 +14,7 @@
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
+#include <quic/api/Observer.h>
 #include <quic/common/Timers.h>
 #include <quic/logging/FileQLogger.h>
 
@@ -29,17 +30,24 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
   enum class ConnCallbackState { NONE, CONNECT_SUCCESS, REPLAY_SAFE, DONE };
 
  public:
-  explicit TGClient(const HQParams params, folly::EventBase* evb);
+  explicit TGClient(const HQParams params,
+                    folly::EventBase* evb,
+                    const proxygen::URL& requestUrl);
 
-  void start(const proxygen::URL requestUrl);
+  void start();
 
   void close();
 
   bool isRunning() {
-    return running;
+    return connState_ != ConnCallbackState::DONE;
   }
 
-  proxygen::HTTPTransaction* sendRequest(const proxygen::URL requestUrl);
+  bool isIdle() {
+    return createdStreams.empty() ||
+           (!createdStreams.empty() && createdStreams.back()->ended());
+  }
+
+  proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
 
  private:
   void connectSuccess() override;
@@ -52,21 +60,19 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
 
   const HQParams params_;
 
-  proxygen::URL firstRequest;
+  folly::EventBase* evb_;
+
+  const proxygen::URL& firstRequest;
 
   std::shared_ptr<quic::QuicClientTransport> quicClient_;
 
   TimerHighRes::SharedPtr pacingTimer_;
-
-  folly::EventBase* evb_;
 
   proxygen::HQUpstreamSession* session_;
 
   std::list<std::unique_ptr<ConnHandler>> createdStreams;
 
   ConnCallbackState connState_{ConnCallbackState::NONE};
-
-  bool running{true};
 };
 
 } // namespace samples

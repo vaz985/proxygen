@@ -17,6 +17,9 @@
 
 namespace quic { namespace samples {
 
+using Clock = std::chrono::high_resolution_clock;
+using TimePoint = std::chrono::time_point<Clock>;
+
 class ConnHandler
     : public proxygen::HTTPConnector::Callback
     , public proxygen::HTTPTransactionHandler {
@@ -24,7 +27,7 @@ class ConnHandler
  public:
   ConnHandler(folly::EventBase* evb,
               proxygen::HTTPMethod httpMethod,
-              const proxygen::URL url,
+              const proxygen::URL& url,
               const proxygen::URL* proxy,
               const proxygen::HTTPHeaders& headers,
               const std::string& inputFilename,
@@ -83,6 +86,14 @@ class ConnHandler
     loggingEnabled_ = enabled;
   }
 
+  void setEOMFunc(std::function<void()> eomFunc) {
+    eomFunc_ = eomFunc;
+  }
+
+  bool ended() {
+    return rcvEOM;
+  }
+
  protected:
   void sendBodyFromFile();
 
@@ -91,7 +102,7 @@ class ConnHandler
   proxygen::HTTPTransaction* txn_{nullptr};
   folly::EventBase* evb_{nullptr};
   proxygen::HTTPMethod httpMethod_;
-  proxygen::URL url_;
+  const proxygen::URL& url_;
   std::unique_ptr<proxygen::URL> proxy_;
   proxygen::HTTPMessage request_;
   const std::string inputFilename_;
@@ -106,7 +117,10 @@ class ConnHandler
   std::unique_ptr<std::ofstream> outputFile_;
   std::unique_ptr<std::ostream> outputStream_;
   bool partiallyReliable_{false};
-  // std::atomic_uint& concurrentConns_;
+  folly::Optional<std::function<void()>> eomFunc_;
+  TimePoint startTime;
+  TimePoint endTime;
+  bool rcvEOM{false};
 };
 
 }} // namespace quic::samples

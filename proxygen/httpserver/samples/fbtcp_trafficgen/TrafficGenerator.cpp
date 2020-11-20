@@ -19,6 +19,7 @@
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/InsecureVerifierDangerousDoNotUseInProduction.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/TrafficGenerator.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
+#include <proxygen/lib/utils/URL.h>
 #include <quic/client/QuicClientTransport.h>
 #include <quic/common/Timers.h>
 #include <quic/fizz/client/handshake/FizzClientQuicHandshakeContext.h>
@@ -35,13 +36,13 @@ static std::mt19937 gen(rd());
 struct TrafficComponent {
   TimePoint nextEvent;
   std::string name_;
-  proxygen::URL url_;
   double rate_;
+  proxygen::URL url_;
   std::exponential_distribution<double> distrib;
 
   TrafficComponent(std::string name, double rate) : name_(name), rate_(rate) {
-    url_ = proxygen::URL(name, /*secure=*/true);
-    distrib = std::exponential_distribution<>(rate);
+    url_ = proxygen::URL(name_);
+    distrib = std::exponential_distribution<>(rate_);
     nextEvent = Clock::now();
     updateEvent();
   }
@@ -58,6 +59,10 @@ struct TrafficComponent {
 TrafficGenerator::TrafficGenerator(const HQParams& params) : params_(params) {
 }
 
+static std::function<void()> schedulingRequest;
+static std::function<void()> schedulingStart;
+static std::function<void()> schedulingClose;
+
 void TrafficGenerator::start() {
   folly::EventBase evb;
   std::thread th([&] { evb.loopForever(); });
@@ -69,50 +74,95 @@ void TrafficGenerator::start() {
   auto trafficCfg = folly::parseJson(jsonString.str());
   std::priority_queue<TrafficComponent> pq;
   for (auto it : trafficCfg["cross_traffic_components"]) {
-    std::string name = it["name"].asString();
+    std::string name = "/" + it["name"].asString();
     double rate = it["rate"].asDouble();
     pq.emplace(name, rate);
   }
 
   // Reuse generator
-  std::uniform_int_distribution<uint32_t> reuseDistrib(0, 100); 
+  std::uniform_int_distribution<uint32_t> reuseDistrib(0, 100);
 
   // main loop
   uint32_t duration = params_.duration;
   TimePoint startTime = Clock::now();
   TimePoint endTime = startTime + std::chrono::seconds(duration);
-  std::vector<std::unique_ptr<TGClient>> createdClients;
+
+  std::vector<std::unique_ptr<TGClient>> createdConnections;
+  uint64_t nextClientNum = 0;
+  std::unordered_map<uint64_t, TGClient*> runningConnections;
+
   while (true) {
     TimePoint curTime = Clock::now();
     if (curTime > endTime) {
       break;
     }
 
-    auto top = pq.top();
-    std::this_thread::sleep_until(top.nextEvent);
-    LOG(INFO) << "Requesting " << top.name_;
+    TrafficComponent topElement = pq.top();
+    std::this_thread::sleep_until(topElement.nextEvent);
 
-    if (!createdClients.empty() && createdClients.back()->isRunning()) {
-      LOG(INFO) << "Reusing last connection";
-      createdClients.back()->sendRequest(top.url_);
+    // Check connections status
+    std::vector<uint64_t> completedConnections;
+    std::vector<TGClient*> idleConnectionVec;
+    for (auto it = runningConnections.begin();
+         it != runningConnections.end();) {
+      auto next = std::next(it);
+      TGClient* curConn = it->second;
+      if (!curConn->isRunning()) {
+        runningConnections.erase(it);
+      } else if (curConn->isIdle()) {
+        idleConnectionVec.push_back(curConn);
+      }
+      it = next;
     }
-    else {
+
+    CHECK(idleConnectionVec.size() <= runningConnections.size());
+
+    // Too many running connections, wait for the next event
+    if (idleConnectionVec.empty() &&
+        (runningConnections.size() >= params_.maxConcurrent)) {
+      continue;
+    }
+
+    LOG(INFO) << "Requesting " << topElement.url_.getPath();
+
+    // If no idle connection is available we create a connection
+    // and request a file
+    if (idleConnectionVec.empty()) {
       LOG(INFO) << "Creating new connection";
-      auto client = std::make_unique<TGClient>(params_, &evb);
-      client->start(top.url_);
-      createdClients.push_back(std::move(client));
+      auto client = std::make_unique<TGClient>(params_, &evb, topElement.url_);
+      createdConnections.push_back(std::move(client));
+      runningConnections[nextClientNum++] = createdConnections.back().get();
+      schedulingStart = [&]() { createdConnections.back()->start(); };
+      evb.runInEventBaseThread(schedulingStart);
     }
+    // Else, we reuse a randomly choosen dle connection
+    else {
+      std::uniform_int_distribution<> idleConnectionGen(
+          0, idleConnectionVec.size() - 1);
+      TGClient* idleConnection = idleConnectionVec[idleConnectionGen(gen)];
 
-    bool shouldClose = (reuseDistrib(gen) > params_.reuseProb) ? true : false;
-    if (shouldClose) {
-      createdClients.back()->close();
+      LOG(INFO) << "Reusing connection";
+      schedulingRequest = [&]() {
+        idleConnection->sendRequest(topElement.url_);
+      };
+      evb.runInEventBaseThread(schedulingRequest);
+
+      // Close the connection after processing every request
+      bool shouldClose = (reuseDistrib(gen) > params_.reuseProb) ? true : false;
+      if (shouldClose) {
+        LOG(INFO) << "Closing last connection";
+        schedulingClose = [&]() { idleConnection->close(); };
+        evb.runInEventBaseThread(schedulingClose);
+      }
     }
 
     pq.pop();
-    top.updateEvent();
-    pq.push(top);
-  }
+    topElement.updateEvent();
+    pq.push(topElement);
 
+    // std::this_thread::sleep_for(std::chrono::seconds(2));
+  }
+  LOG(INFO) << "ENDED";
   evb.terminateLoopSoon();
   th.join();
 }

@@ -200,10 +200,24 @@ void ConnHandler::setupHeaders() {
 }
 
 void ConnHandler::sendRequest(HTTPTransaction* txn) {
-  startTime = Clock::now();
   txn_ = txn;
   setupHeaders();
   txn_->sendHeadersWithEOM(request_);
+
+  startTime = Clock::now();
+  std::string clientIP = request_.getClientIP();
+  std::string clientPort = request_.getClientPort();
+  std::string serverIP = request_.getDstIP();
+  std::string serverPort = request_.getDstPort();
+  requestEvent ev(requestEventType::START,
+                  url_.getPath(),
+                  clientIP,
+                  clientPort,
+                  serverIP,
+                  serverPort);
+  if (cb_) {
+    cb_->get()->handleEvent(ev);
+  }
 }
 
 void ConnHandler::sendBodyFromFile() {
@@ -241,15 +255,13 @@ void ConnHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
 }
 
 void ConnHandler::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {
-  if (!loggingEnabled_) {
-    return;
-  }
   CHECK(outputStream_);
   if (chain) {
     const IOBuf* p = chain.get();
     do {
-      outputStream_->write((const char*)p->data(), p->length());
-      outputStream_->flush();
+      // outputStream_->write((const char*)p->data(), p->length());
+      // outputStream_->flush();
+      bodyLength += p->length();
       p = p->next();
     } while (p != chain.get());
   }
@@ -261,21 +273,31 @@ void ConnHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
 
 void ConnHandler::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
-
-  endTime = Clock::now();
   rcvEOM = true;
+  endTime = Clock::now();
 
-  // wangle::TransportInfo transportInfo;
-  // txn_->getCurrentTransportInfo(&transportInfo);
-  // auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-  //     endTime - startTime);
-  // auto seconds = elapsed.count() / double(1000);
-  // auto ingressBytes = transportInfo.totalBytes;
-  // LOG(INFO) << url_.getPath() << " request done\n"
-  //           << transportInfo.totalBytes / seconds << "B/s\n"
-  //           << seconds << "s\n"
-  //           << "totalBytes: " << transportInfo.totalBytes;
-  // LOG(INFO) << "Request done on " << elapsed.count() / double(1000) << "s";
+  // Need access to IP:PORT, bellow doesnt work
+  std::string clientIP = request_.getClientIP();
+  std::string clientPort = request_.getClientPort();
+  std::string serverIP = request_.getDstIP();
+  std::string serverPort = request_.getDstPort();
+
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      endTime - startTime);
+  double requestDurationSeconds = duration.count() / double(1000);
+
+  requestEvent ev(requestEventType::FINISH,
+                  url_.getPath(),
+                  clientIP,
+                  clientPort,
+                  serverIP,
+                  serverPort,
+                  requestDurationSeconds,
+                  bodyLength,
+                  double(bodyLength) / requestDurationSeconds);
+  if (cb_) {
+    cb_->get()->handleEvent(ev);
+  }
 }
 
 void ConnHandler::onUpgrade(UpgradeProtocol) noexcept {

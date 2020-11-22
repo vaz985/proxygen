@@ -10,10 +10,12 @@
 
 #include <list>
 #include <memory>
+
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnHandler.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
+
 #include <quic/api/Observer.h>
 #include <quic/common/Timers.h>
 #include <quic/logging/FileQLogger.h>
@@ -49,6 +51,11 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
 
   proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
 
+  void setCallback(
+      const std::shared_ptr<ConnHandler::CallbackHandler>& cbHandler) {
+    cb_ = cbHandler;
+  }
+
  private:
   void connectSuccess() override;
 
@@ -73,6 +80,8 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
   std::list<std::unique_ptr<ConnHandler>> createdStreams;
 
   ConnCallbackState connState_{ConnCallbackState::NONE};
+
+  folly::Optional<std::shared_ptr<ConnHandler::CallbackHandler>> cb_;
 };
 
 } // namespace samples

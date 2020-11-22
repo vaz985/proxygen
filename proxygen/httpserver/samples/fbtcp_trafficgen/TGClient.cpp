@@ -20,9 +20,9 @@
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/InsecureVerifierDangerousDoNotUseInProduction.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/TGClient.h>
-
 #include <proxygen/lib/http/codec/HTTP1xCodec.h>
 #include <proxygen/lib/utils/UtilInl.h>
+
 #include <quic/api/QuicSocket.h>
 #include <quic/client/QuicClientTransport.h>
 #include <quic/congestion_control/CongestionControllerFactory.h>
@@ -109,6 +109,12 @@ TGClient::sendRequest(const proxygen::URL& requestUrl) {
     //                                 std::chrono::milliseconds(1000));
   }
 
+  // Pass IP:PORT to client
+  // auto localAddress = quicClient_->getLocalAddress();
+  // auto peerAddress = quicClient_->getPeerAddress();
+  // LOG(INFO) << localAddress.getAddressStr() << " " <<
+  // peerAddress.getAddressStr();
+
   std::unique_ptr<ConnHandler> client =
       std::make_unique<ConnHandler>(evb_,
                                     params_.httpMethod,
@@ -119,6 +125,9 @@ TGClient::sendRequest(const proxygen::URL& requestUrl) {
                                     false,
                                     params_.httpVersion.major,
                                     params_.httpVersion.minor);
+  if (cb_) {
+    client->setCallback(cb_.value());
+  }
 
   uint64_t numOpenableStreams =
       quicClient_->getNumOpenableBidirectionalStreams();
@@ -136,6 +145,8 @@ TGClient::sendRequest(const proxygen::URL& requestUrl) {
     return nullptr;
   }
   client->sendRequest(txn);
+  // The emplace guarantees that no other stream will be created before rcving
+  // EOM, maybe we should guarantee this earlier
   createdStreams.emplace_back(std::move(client));
   return txn;
 }

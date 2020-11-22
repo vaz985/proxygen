@@ -8,9 +8,11 @@
 
 #pragma once
 
+#include <fstream>
+
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/SSLContext.h>
-#include <fstream>
+
 #include <proxygen/lib/http/HTTPConnector.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/utils/URL.h>
@@ -25,6 +27,41 @@ class ConnHandler
     , public proxygen::HTTPTransactionHandler {
 
  public:
+  enum class requestEventType { NONE, START, FINISH };
+  struct requestEvent {
+    std::time_t tstamp_{std::time(nullptr)};
+    requestEventType type_{requestEventType::NONE};
+    std::string requestUrl_{""};
+    std::string dst_;
+    std::string src_;
+    double requestDurationSeconds_{0};
+    uint64_t bodyLength_{0};
+    double bytesPerSecond_{0};
+
+    requestEvent(requestEventType eventType,
+                 std::string requestUrl,
+                 std::string clientIP,
+                 std::string clientPort,
+                 std::string serverIP,
+                 std::string serverPort,
+                 double requestDurationSeconds = 0,
+                 uint64_t bodyLength = 0,
+                 double bytesPerSecond = 0)
+        : type_(eventType),
+          requestUrl_(requestUrl),
+          dst_(clientIP + ":" + clientPort),
+          src_(serverIP + ":" + serverPort),
+          requestDurationSeconds_(requestDurationSeconds),
+          bodyLength_(bodyLength),
+          bytesPerSecond_(bytesPerSecond) {
+    }
+  };
+
+  class CallbackHandler {
+   public:
+    virtual void handleEvent(const requestEvent& ev) = 0;
+  };
+
   ConnHandler(folly::EventBase* evb,
               proxygen::HTTPMethod httpMethod,
               const proxygen::URL& url,
@@ -94,6 +131,10 @@ class ConnHandler
     return rcvEOM;
   }
 
+  void setCallback(std::shared_ptr<CallbackHandler>& cbHandler) {
+    cb_ = cbHandler;
+  }
+
  protected:
   void sendBodyFromFile();
 
@@ -121,6 +162,8 @@ class ConnHandler
   TimePoint startTime;
   TimePoint endTime;
   bool rcvEOM{false};
+  uint64_t bodyLength{0};
+  folly::Optional<std::shared_ptr<CallbackHandler>> cb_;
 };
 
 }} // namespace quic::samples

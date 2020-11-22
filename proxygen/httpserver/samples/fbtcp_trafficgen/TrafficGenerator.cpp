@@ -29,32 +29,58 @@ using TimePoint = std::chrono::time_point<Clock>;
 
 namespace quic { namespace samples {
 
-static std::random_device rd;
-static std::mt19937 gen(rd());
-
-// TODO: Make a enum for the gen type
-struct TrafficComponent {
-  TimePoint nextEvent;
-  std::string name_;
-  double rate_;
-  proxygen::URL url_;
-  std::exponential_distribution<double> distrib;
-
-  TrafficComponent(std::string name, double rate) : name_(name), rate_(rate) {
-    url_ = proxygen::URL(name_);
-    distrib = std::exponential_distribution<>(rate_);
-    nextEvent = Clock::now();
-    updateEvent();
+void writeToOutput(folly::Optional<folly::File>& outputFileOpt,
+                   const std::string& line) {
+  if (outputFileOpt.hasValue()) {
+    const auto& outputFile = outputFileOpt.value();
+    CHECK_EQ(line.size(),
+             folly::writeFull(outputFile.fd(), line.data(), line.size()));
+    CHECK_EQ(1, folly::writeFull(outputFile.fd(), "\n", 1));
+  } else {
+    std::cout << line << std::endl;
   }
+}
 
-  bool operator<(const TrafficComponent& rhs) const {
-    return nextEvent > rhs.nextEvent;
-  }
+ConnCallback::ConnCallback(folly::Optional<folly::File>&& outputFile)
+    : outputFile_(std::move(outputFile)) {
+  std::vector<std::string> row;
+  row.push_back("evtstamp");
+  row.push_back("type");
+  row.push_back("request_url");
+  row.push_back("dst");
+  row.push_back("src");
+  row.push_back("duration");
+  row.push_back("body_length");
+  row.push_back("Bps");
+  const std::lock_guard<std::mutex> lock(writeMutex);
+  writeToOutput(outputFile_, folly::join(",", row));
+}
 
-  void updateEvent() {
-    nextEvent += std::chrono::milliseconds(int(1000 * distrib(gen)));
+void ConnCallback::handleEvent(const ConnHandler::requestEvent& ev) {
+  std::vector<std::string> row;
+  row.push_back(std::to_string(ev.tstamp_));
+  switch (ev.type_) {
+    case ConnHandler::requestEventType::START:
+      row.push_back("REQUEST_START");
+      break;
+    case ConnHandler::requestEventType::FINISH:
+      row.push_back("REQUEST_FINISH");
+      break;
+    case ConnHandler::requestEventType::NONE:
+      abort();
+      break;
   }
-};
+  row.push_back(ev.requestUrl_);
+
+  // Where do the connected port is stored?
+  row.push_back("TODO");
+  row.push_back("TODO");
+
+  row.push_back(std::to_string(ev.requestDurationSeconds_));
+  row.push_back(std::to_string(ev.bodyLength_));
+  row.push_back(std::to_string(ev.bytesPerSecond_));
+  writeToOutput(outputFile_, folly::join(",", row));
+}
 
 TrafficGenerator::TrafficGenerator(const HQParams& params) : params_(params) {
 }
@@ -82,6 +108,15 @@ void TrafficGenerator::start() {
   // Reuse generator
   std::uniform_int_distribution<uint32_t> reuseDistrib(0, 100);
 
+  // log callback
+  uint32_t cid = params_.cid;
+  std::string logPath =
+      params_.logdir + "/client-" + std::to_string(cid) + ".log";
+  auto fp =
+      folly::File::makeFile(logPath, O_WRONLY | O_TRUNC | O_CREAT).value();
+  std::shared_ptr<ConnCallback> cb_ =
+      std::make_shared<ConnCallback>(std::move(fp));
+
   // main loop
   uint32_t duration = params_.duration;
   TimePoint startTime = Clock::now();
@@ -100,7 +135,8 @@ void TrafficGenerator::start() {
     TrafficComponent topElement = pq.top();
     std::this_thread::sleep_until(topElement.nextEvent);
 
-    // Check connections status
+    // Check connections status, unless the connection cap is ultra huge
+    // this should have low time cost to process
     std::vector<uint64_t> completedConnections;
     std::vector<TGClient*> idleConnectionVec;
     for (auto it = runningConnections.begin();
@@ -123,13 +159,14 @@ void TrafficGenerator::start() {
       continue;
     }
 
-    LOG(INFO) << "Requesting " << topElement.url_.getPath();
+    // LOG(INFO) << "Requesting " << topElement.url_.getPath();
 
     // If no idle connection is available we create a connection
     // and request a file
     if (idleConnectionVec.empty()) {
-      LOG(INFO) << "Creating new connection";
+      // LOG(INFO) << "Creating new connection";
       auto client = std::make_unique<TGClient>(params_, &evb, topElement.url_);
+      client->setCallback(cb_);
       createdConnections.push_back(std::move(client));
       runningConnections[nextClientNum++] = createdConnections.back().get();
       schedulingStart = [&]() { createdConnections.back()->start(); };
@@ -141,7 +178,7 @@ void TrafficGenerator::start() {
           0, idleConnectionVec.size() - 1);
       TGClient* idleConnection = idleConnectionVec[idleConnectionGen(gen)];
 
-      LOG(INFO) << "Reusing connection";
+      // LOG(INFO) << "Reusing connection";
       schedulingRequest = [&]() {
         idleConnection->sendRequest(topElement.url_);
       };
@@ -150,7 +187,7 @@ void TrafficGenerator::start() {
       // Close the connection after processing every request
       bool shouldClose = (reuseDistrib(gen) > params_.reuseProb) ? true : false;
       if (shouldClose) {
-        LOG(INFO) << "Closing last connection";
+        // LOG(INFO) << "Closing last connection";
         schedulingClose = [&]() { idleConnection->close(); };
         evb.runInEventBaseThread(schedulingClose);
       }

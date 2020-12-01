@@ -47,6 +47,11 @@ class ConnectionObserver : public quic::InstrumentationObserver {
       QuicSocket* sock,
       const quic::InstrumentationObserver::PacketRTT& pktRTT) override;
 
+  void packetLossDetected(
+      QuicSocket* sock,
+      const struct quic::InstrumentationObserver::ObserverLossEvent& lossEvent)
+      override;
+
  private:
   folly::Optional<folly::File> outputFile_;
   std::mutex writeMutex;

@@ -404,4 +404,25 @@ void ConnectionObserver::rttSampleGenerated(
   writeToOutput(outputFile_, folly::join(",", row));
 }
 
+void ConnectionObserver::packetLossDetected(
+    QuicSocket* sock,
+    const struct quic::InstrumentationObserver::ObserverLossEvent& lossEvent) {
+
+  const folly::SocketAddress peerAddress = sock->getPeerAddress();
+  const folly::SocketAddress localAddress = sock->getLocalAddress();
+  // quic::QuicSocket::TransportInfo tinfo = sock->getTransportInfo();
+
+  std::string dst =
+      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
+  std::string src = localAddress.getAddressStr() + ":" +
+                    std::to_string(localAddress.getPort());
+
+  std::vector<std::string> lostPackets;
+  for (auto it : lossEvent.lostPackets) {
+    lostPackets.emplace_back(std::to_string(it.packet.packet.header.getPacketSequenceNum()));
+  }
+  // LOG(INFO) << "[SRC: " << src << "][DST: " << dst
+  //           << "] Lost packets: " << folly::join(" ", lostPackets);
+}
+
 }} // namespace quic::samples

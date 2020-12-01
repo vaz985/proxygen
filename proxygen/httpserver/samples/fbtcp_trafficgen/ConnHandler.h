@@ -13,14 +13,18 @@
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/SSLContext.h>
 
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/Utils.h>
 #include <proxygen/lib/http/HTTPConnector.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/utils/URL.h>
 
-namespace quic { namespace samples {
+namespace quic {
 
-using Clock = std::chrono::high_resolution_clock;
-using TimePoint = std::chrono::time_point<Clock>;
+class QuicClientTransport;
+
+namespace samples {
+
+static std::uniform_int_distribution<uint32_t> requestIdGen;
 
 class ConnHandler
     : public proxygen::HTTPConnector::Callback
@@ -29,8 +33,9 @@ class ConnHandler
  public:
   enum class requestEventType { NONE, START, FINISH };
   struct requestEvent {
-    std::time_t tstamp_{std::time(nullptr)};
+    uint64_t tstamp_{0};
     requestEventType type_{requestEventType::NONE};
+    uint32_t requestId_;
     std::string requestUrl_{""};
     std::string dst_;
     std::string src_;
@@ -39,21 +44,25 @@ class ConnHandler
     double bytesPerSecond_{0};
 
     requestEvent(requestEventType eventType,
+                 uint32_t requestId,
                  std::string requestUrl,
-                 std::string clientIP,
-                 std::string clientPort,
-                 std::string serverIP,
-                 std::string serverPort,
+                 std::string dst,
+                 std::string src,
                  double requestDurationSeconds = 0,
                  uint64_t bodyLength = 0,
                  double bytesPerSecond = 0)
         : type_(eventType),
+          requestId_(requestId),
           requestUrl_(requestUrl),
-          dst_(clientIP + ":" + clientPort),
-          src_(serverIP + ":" + serverPort),
+          dst_(dst),
+          src_(src),
           requestDurationSeconds_(requestDurationSeconds),
           bodyLength_(bodyLength),
           bytesPerSecond_(bytesPerSecond) {
+      std::chrono::system_clock::time_point tp =
+          std::chrono::system_clock::now();
+      std::chrono::system_clock::duration dtn = tp.time_since_epoch();
+      tstamp_ = dtn.count();
     }
   };
 
@@ -63,12 +72,12 @@ class ConnHandler
   };
 
   ConnHandler(folly::EventBase* evb,
+              // std::shared_ptr<quic::QuicClientTransport>& sock,
               proxygen::HTTPMethod httpMethod,
               const proxygen::URL& url,
               const proxygen::URL* proxy,
               const proxygen::HTTPHeaders& headers,
               const std::string& inputFilename,
-              // std::atomic_uint& concurrentConns,
               bool h2c = false,
               unsigned short httpMajor = 1,
               unsigned short httpMinor = 1);
@@ -164,6 +173,18 @@ class ConnHandler
   bool rcvEOM{false};
   uint64_t bodyLength{0};
   folly::Optional<std::shared_ptr<CallbackHandler>> cb_;
+  uint32_t requestId_ = requestIdGen(gen);
 };
 
-}} // namespace quic::samples
+class ConnCallback : public ConnHandler::CallbackHandler {
+ public:
+  ConnCallback(folly::Optional<folly::File>&& outputFile);
+  void handleEvent(const ConnHandler::requestEvent& ev) override;
+
+ private:
+  folly::Optional<folly::File> outputFile_;
+  std::mutex writeMutex;
+};
+
+} // namespace samples
+} // namespace quic

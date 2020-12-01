@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/hq/PartiallyReliableCurlClient.h>
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/PartiallyReliableCurlClient.h>
 
 namespace quic { namespace samples {
 void PartiallyReliableCurlClient::onHeadersComplete(

@@ -17,6 +17,7 @@
 #include <proxygen/lib/http/session/HQSession.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/transport/PersistentQuicPskCache.h>
+#include <quic/QuicConstants.h>
 
 DEFINE_uint32(numClients, 0, "");
 
@@ -26,6 +27,12 @@ DEFINE_uint32(maxConcurrent, 1, "");
 DEFINE_string(trafficPath, "", "");
 DEFINE_uint32(duration, 10, "");
 
+// FBTCP Settings
+DEFINE_uint32(server_group, 0, "");
+DEFINE_uint32(client_group, 0, "");
+DEFINE_string(client_logs, "", "");
+DEFINE_string(event_logs, "", "");
+
 DEFINE_string(host, "::1", "HQ server hostname/IP");
 DEFINE_int32(port, 6666, "HQ server port");
 DEFINE_int32(h2port, 6667, "HTTP/2 server port");
@@ -34,11 +41,11 @@ DEFINE_string(mode, "server", "Mode to run in: 'client' or 'server'");
 DEFINE_string(body, "", "Filename to read from for POST requests");
 DEFINE_string(path,
               "/",
-              "(Conn) url-path to send the request to, "
+              "(HQClient) url-path to send the request to, "
               "or a comma separated list of paths to fetch in parallel");
-DEFINE_int32(connect_timeout, 2000, "(Conn) connect timeout in ms");
+DEFINE_int32(connect_timeout, 2000, "(HQClient) connect timeout in ms");
 DEFINE_string(httpversion, "1.1", "HTTP version string");
-DEFINE_string(protocol, "", "HQ protocol version e.g. h1q-fb or h1q-fb-v2");
+DEFINE_string(protocol, "", "HQ protocol version e.g. h3-29 or hq-fb-05");
 DEFINE_int32(draft_version, 0, "Draft version to use, 0 is default");
 DEFINE_bool(use_draft, true, "Use draft version as first version");
 DEFINE_string(logdir, "/tmp/logs", "Directory to store connection logs");
@@ -47,8 +54,8 @@ DEFINE_bool(log_response,
             true,
             "Whether to log the response content to stderr");
 DEFINE_string(congestion, "cubic", "newreno/cubic/bbr/none");
-DEFINE_int32(conn_flow_control, 1024 * 1024, "Connection flow control");
-DEFINE_int32(stream_flow_control, 65 * 1024, "Stream flow control");
+DEFINE_int32(conn_flow_control, 1024 * 1024 * 10, "Connection flow control");
+DEFINE_int32(stream_flow_control, 256 * 1024, "Stream flow control");
 DEFINE_int32(max_receive_packet_size,
              quic::kDefaultUDPReadBufferSize,
              "Max UDP packet size Quic can receive");
@@ -109,8 +116,8 @@ DEFINE_string(static_root,
               "Path to serve static files from. Disabled if empty.");
 DEFINE_bool(migrate_client,
             false,
-            "(Conn) Should the Conn make two sets of requests and switch "
-            "sockets in the middle.");
+            "(HQClient) Should the HQClient make two sets of requests and "
+            "switch sockets in the middle.");
 DEFINE_bool(use_inplace_write,
             false,
             "Transport use inplace packet build and socket writing");
@@ -119,7 +126,40 @@ DEFINE_string(ccp_config,
               "",
               "Additional args to pass to ccp. Ccp disabled if empty string.");
 
-DEFINE_bool(write_to_null, false, "(Conn) Write file to /dev/null");
+DEFINE_bool(send_knob_frame,
+            false,
+            "Send a Knob Frame to the peer when a QUIC connection is "
+            "established successfully");
+
+DEFINE_string(transport_knobs,
+              "",
+              "If send_knob_frame is set, this is the default transport knobs"
+              " sent to peer");
+DEFINE_bool(d6d_enabled, false, "Enable d6d");
+DEFINE_uint32(d6d_probe_raiser_constant_step_size,
+              10,
+              "Server only. The constant step size used to increase PMTU, only "
+              "meaningful to ConstantStep probe size raiser");
+DEFINE_uint32(d6d_probe_raiser_type,
+              0,
+              "Server only. The type of probe size raiser. 0: ConstantStep, 1: "
+              "BinarySearch");
+DEFINE_uint32(d6d_blackhole_detection_window_secs,
+              5,
+              "Server only. PMTU blackhole detection window in secs");
+DEFINE_uint32(
+    d6d_blackhole_detection_threshold,
+    5,
+    "Server only. PMTU blackhole detection threshold, in # of packets");
+DEFINE_uint32(d6d_base_pmtu,
+              1252,
+              "Client only. The base PMTU advertised to server");
+DEFINE_uint32(d6d_raise_timeout_secs,
+              600,
+              "Client only. The raise timeout advertised to server");
+DEFINE_uint32(d6d_probe_timeout_secs,
+              600,
+              "Client only. The probe timeout advertised to server");
 
 namespace quic { namespace samples {
 
@@ -145,21 +185,18 @@ std::ostream& operator<<(std::ostream& o, const HQMode& m) {
 }
 
 namespace {
-folly::Optional<quic::CongestionControlType> flagsToCongestionControlType(
-    const std::string& congestionControlType) {
-  if (congestionControlType == "cubic") {
-    return quic::CongestionControlType::Cubic;
-  } else if (congestionControlType == "newreno") {
-    return quic::CongestionControlType::NewReno;
-  } else if (congestionControlType == "bbr") {
-    return quic::CongestionControlType::BBR;
-  } else if (congestionControlType == "none") {
-    return quic::CongestionControlType::None;
-  } else if (congestionControlType == "ccp") {
-    return quic::CongestionControlType::CCP;
+
+quic::ProbeSizeRaiserType parseRaiserType(uint32_t type) {
+  auto maybeRaiserType = static_cast<quic::ProbeSizeRaiserType>(type);
+  switch (maybeRaiserType) {
+    case quic::ProbeSizeRaiserType::ConstantStep:
+    case quic::ProbeSizeRaiserType::BinarySearch:
+      return maybeRaiserType;
+    default:
+      throw std::runtime_error("Invalid raiser type, must be 0 or 1.");
   }
-  return folly::none;
 }
+
 /*
  * Initiazliation and validation functions.
  *
@@ -173,11 +210,18 @@ folly::Optional<quic::CongestionControlType> flagsToCongestionControlType(
 void initializeCommonSettings(HQParams& hqParams) {
   // New section
   hqParams.cid = FLAGS_cid;
+
+  hqParams.clientGroup = FLAGS_client_group;
+  hqParams.serverGroup = FLAGS_server_group;
+
   hqParams.reuseProb = FLAGS_reuseProb;
   hqParams.numClients = FLAGS_numClients;
   hqParams.maxConcurrent = FLAGS_maxConcurrent;
   hqParams.trafficPath = FLAGS_trafficPath;
   hqParams.duration = FLAGS_duration;
+
+  hqParams.clientLogs = FLAGS_client_logs;
+  hqParams.eventLogs = FLAGS_event_logs;
 
   // General section
   hqParams.host = FLAGS_host;
@@ -202,7 +246,15 @@ void initializeCommonSettings(HQParams& hqParams) {
           folly::SocketAddress(FLAGS_local_address, 0, true);
     }
     hqParams.outdir = FLAGS_outdir;
-    hqParams.write_to_null = FLAGS_write_to_null;
+  } else if (FLAGS_mode == "multiple") {
+    hqParams.mode = HQMode::MULTIPLE;
+    hqParams.logprefix = "multiple";
+    hqParams.remoteAddress =
+        folly::SocketAddress(hqParams.host, hqParams.port, true);
+    if (!FLAGS_local_address.empty()) {
+      hqParams.localAddress =
+          folly::SocketAddress(FLAGS_local_address, 0, true);
+    }
   }
 }
 
@@ -210,6 +262,7 @@ void initializeTransportSettings(HQParams& hqParams) {
   // Transport section
   hqParams.quicVersions = {quic::QuicVersion::MVFST,
                            quic::QuicVersion::MVFST_D24,
+                           quic::QuicVersion::MVFST_EXPERIMENTAL,
                            quic::QuicVersion::QUIC_DRAFT,
                            quic::QuicVersion::QUIC_DRAFT_LEGACY};
   if (FLAGS_draft_version != 0) {
@@ -245,7 +298,8 @@ void initializeTransportSettings(HQParams& hqParams) {
   hqParams.transportSettings.advertisedInitialUniStreamWindowSize =
       FLAGS_stream_flow_control;
   hqParams.congestionControlName = FLAGS_congestion;
-  hqParams.congestionControl = flagsToCongestionControlType(FLAGS_congestion);
+  hqParams.congestionControl =
+      quic::congestionControlStrToType(FLAGS_congestion);
   if (hqParams.congestionControl) {
     hqParams.transportSettings.defaultCongestionController =
         hqParams.congestionControl.value();
@@ -284,6 +338,32 @@ void initializeTransportSettings(HQParams& hqParams) {
   }
   hqParams.connectTimeout = std::chrono::milliseconds(FLAGS_connect_timeout);
   hqParams.ccpConfig = FLAGS_ccp_config;
+  hqParams.sendKnobFrame = FLAGS_send_knob_frame;
+  if (hqParams.sendKnobFrame) {
+    hqParams.transportSettings.knobs.push_back({kDefaultQuicTransportKnobSpace,
+                                                kDefaultQuicTransportKnobId,
+                                                FLAGS_transport_knobs});
+  }
+  hqParams.transportSettings.d6dConfig.enabled = FLAGS_d6d_enabled;
+  hqParams.transportSettings.d6dConfig.probeRaiserConstantStepSize =
+      FLAGS_d6d_probe_raiser_constant_step_size;
+  hqParams.transportSettings.d6dConfig.raiserType =
+      parseRaiserType(FLAGS_d6d_probe_raiser_type);
+  hqParams.transportSettings.d6dConfig.blackholeDetectionWindow =
+      std::chrono::seconds(FLAGS_d6d_blackhole_detection_window_secs);
+  hqParams.transportSettings.d6dConfig.blackholeDetectionThreshold =
+      FLAGS_d6d_blackhole_detection_threshold;
+  hqParams.transportSettings.d6dConfig.enabled = FLAGS_d6d_enabled;
+  hqParams.transportSettings.d6dConfig.advertisedBasePMTU = FLAGS_d6d_base_pmtu;
+  hqParams.transportSettings.d6dConfig.advertisedRaiseTimeout =
+      std::chrono::seconds(FLAGS_d6d_raise_timeout_secs);
+  hqParams.transportSettings.d6dConfig.advertisedProbeTimeout =
+      std::chrono::seconds(FLAGS_d6d_probe_timeout_secs);
+  hqParams.transportSettings.maxRecvBatchSize = 32;
+  hqParams.transportSettings.shouldUseRecvmmsgForBatchRecv = true;
+  hqParams.transportSettings.advertisedInitialMaxStreamsBidi = 100;
+  hqParams.transportSettings.advertisedInitialMaxStreamsUni = 100;
+  hqParams.transportSettings.tokenlessPacer = true;
 } // initializeTransportSettings
 
 void initializeHttpSettings(HQParams& hqParams) {
@@ -307,8 +387,7 @@ void initializeHttpSettings(HQParams& hqParams) {
 
   // parse HTTP headers
   hqParams.httpHeadersString = FLAGS_headers;
-  hqParams.httpHeaders =
-      CurlService::CurlClient::parseHeaders(hqParams.httpHeadersString);
+  hqParams.httpHeaders = ConnHandler::parseHeaders(hqParams.httpHeadersString);
 
   // Set the host header
   if (!hqParams.httpHeaders.exists(proxygen::HTTP_HEADER_HOST)) {
@@ -377,17 +456,18 @@ HQInvalidParams validate(const HQParams& params) {
   } while (false);
 
   // Validate the common settings
-  if (!(params.mode == HQMode::CLIENT || params.mode == HQMode::SERVER)) {
+  if (!(params.mode == HQMode::CLIENT || params.mode == HQMode::SERVER ||
+        params.mode == HQMode::MULTIPLE)) {
     INVALID_PARAM(mode, "only client/server are supported");
   }
 
   // In the client mode, host/port are required
-  if (params.mode == HQMode::CLIENT) {
+  if (params.mode == HQMode::CLIENT || params.mode == HQMode::MULTIPLE) {
     if (params.host.empty()) {
-      INVALID_PARAM(host, "Conn expected --host");
+      INVALID_PARAM(host, "HQClient expected --host");
     }
     if (params.port == 0) {
-      INVALID_PARAM(port, "Conn expected --port");
+      INVALID_PARAM(port, "HQClient expected --port");
     }
   }
 

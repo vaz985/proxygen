@@ -19,6 +19,8 @@
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/TGClient.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/TrafficGenerator.h>
 
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQServer.h>
+
 using namespace quic::samples;
 
 int main(int argc, char* argv[]) {
@@ -41,8 +43,21 @@ int main(int argc, char* argv[]) {
       LOG(ERROR) << "Cannot open " << params.logdir;
     }
 
-    auto tg = TrafficGenerator(params);
-    tg.start();
+    switch (params.mode) {
+      case HQMode::SERVER:
+        startServer(params);
+        break;
+      case HQMode::CLIENT:
+        TrafficGenerator(params).start();
+        break;
+      case HQMode::MULTIPLE:
+        TrafficGenerator(params).startMultiple();
+        break;
+      default:
+        LOG(ERROR) << "Unknown mode specified: ";
+        return -1;
+    }
+    return 0;
   } else {
     for (auto& param : expectedParams.error()) {
       LOG(ERROR) << "Invalid param: " << param.name << " " << param.value << " "

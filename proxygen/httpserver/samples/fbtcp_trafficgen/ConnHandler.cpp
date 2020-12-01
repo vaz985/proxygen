@@ -11,11 +11,11 @@
 #include <iostream>
 #include <sys/stat.h>
 
-#include <folly/FileUtil.h>
 #include <folly/String.h>
 #include <folly/io/async/SSLContext.h>
 #include <folly/io/async/SSLOptions.h>
 #include <folly/portability/GFlags.h>
+
 #include <proxygen/lib/http/HTTPMessage.h>
 #include <proxygen/lib/http/codec/HTTP2Codec.h>
 #include <proxygen/lib/http/session/HTTPUpstreamSession.h>
@@ -205,16 +205,17 @@ void ConnHandler::sendRequest(HTTPTransaction* txn) {
   txn_->sendHeadersWithEOM(request_);
 
   startTime = Clock::now();
-  std::string clientIP = request_.getClientIP();
-  std::string clientPort = request_.getClientPort();
-  std::string serverIP = request_.getDstIP();
-  std::string serverPort = request_.getDstPort();
-  requestEvent ev(requestEventType::START,
-                  url_.getPath(),
-                  clientIP,
-                  clientPort,
-                  serverIP,
-                  serverPort);
+
+  const folly::SocketAddress peerAddress = txn_->getPeerAddress();
+  const folly::SocketAddress localAddress = txn_->getLocalAddress();
+
+  std::string dst =
+      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
+  std::string src = localAddress.getAddressStr() + ":" +
+                    std::to_string(localAddress.getPort());
+
+  requestEvent ev(
+      requestEventType::START, requestId_, url_.getPath(), dst, src);
   if (cb_) {
     cb_->get()->handleEvent(ev);
   }
@@ -276,22 +277,23 @@ void ConnHandler::onEOM() noexcept {
   rcvEOM = true;
   endTime = Clock::now();
 
-  // Need access to IP:PORT, bellow doesnt work
-  std::string clientIP = request_.getClientIP();
-  std::string clientPort = request_.getClientPort();
-  std::string serverIP = request_.getDstIP();
-  std::string serverPort = request_.getDstPort();
+  folly::SocketAddress localAddress = txn_->getLocalAddress();
+  folly::SocketAddress peerAddress = txn_->getPeerAddress();
+
+  std::string dst =
+      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
+  std::string src = localAddress.getAddressStr() + ":" +
+                    std::to_string(localAddress.getPort());
 
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
       endTime - startTime);
   double requestDurationSeconds = duration.count() / double(1000);
 
   requestEvent ev(requestEventType::FINISH,
+                  requestId_,
                   url_.getPath(),
-                  clientIP,
-                  clientPort,
-                  serverIP,
-                  serverPort,
+                  dst,
+                  src,
                   requestDurationSeconds,
                   bodyLength,
                   double(bodyLength) / requestDurationSeconds);
@@ -305,6 +307,7 @@ void ConnHandler::onUpgrade(UpgradeProtocol) noexcept {
 }
 
 void ConnHandler::onError(const HTTPException& error) noexcept {
+  rcvEOM = true;
   LOG(INFO) << "An error occurred: " << error.describe();
 }
 
@@ -331,6 +334,48 @@ const string& ConnHandler::getServerName() const {
     return url_.getHost();
   }
   return res;
+}
+
+ConnCallback::ConnCallback(folly::Optional<folly::File>&& outputFile)
+    : outputFile_(std::move(outputFile)) {
+  std::vector<std::string> row;
+  row.push_back("evtstamp");
+  row.push_back("type");
+  row.push_back("request_url");
+  row.push_back("request_id");
+  row.push_back("dst");
+  row.push_back("src");
+  row.push_back("duration");
+  row.push_back("body_length");
+  row.push_back("Bps");
+  const std::lock_guard<std::mutex> lock(writeMutex);
+  writeToOutput(outputFile_, folly::join(",", row));
+}
+
+void ConnCallback::handleEvent(const ConnHandler::requestEvent& ev) {
+  std::vector<std::string> row;
+  row.push_back(std::to_string(ev.tstamp_));
+  switch (ev.type_) {
+    case ConnHandler::requestEventType::START:
+      row.push_back("REQUEST_START");
+      break;
+    case ConnHandler::requestEventType::FINISH:
+      row.push_back("REQUEST_FINISH");
+      break;
+    case ConnHandler::requestEventType::NONE:
+      abort();
+      break;
+  }
+  row.push_back(ev.requestUrl_);
+
+  row.push_back(std::to_string(ev.requestId_));
+  row.push_back(ev.dst_);
+  row.push_back(ev.src_);
+
+  row.push_back(std::to_string(ev.requestDurationSeconds_));
+  row.push_back(std::to_string(ev.bodyLength_));
+  row.push_back(std::to_string(ev.bytesPerSecond_));
+  writeToOutput(outputFile_, folly::join(",", row));
 }
 
 }} // namespace quic::samples

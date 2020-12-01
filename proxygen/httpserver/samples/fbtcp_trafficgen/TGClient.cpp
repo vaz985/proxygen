@@ -49,6 +49,11 @@ TGClient::TGClient(const HQParams params,
 }
 
 void TGClient::start() {
+  if (connState_ != ConnCallbackState::NONE) {
+    LOG(ERROR) << "EITA";
+    return;
+  }
+  connState_ = ConnCallbackState::STARTING;
 
   initializeQuicClient();
 
@@ -63,8 +68,12 @@ void TGClient::start() {
   session_->setSocket(quicClient_);
   session_->setConnectCallback(this);
 
-  LOG(INFO) << "[CID " << params_.cid << "] Connecting to "
-            << params_.remoteAddress->describe();
+  std::string localAddress = "";
+  if (params_.localAddress) {
+    localAddress = params_.localAddress.value().describe();
+  }
+  VLOG(2) << "[CID " << params_.cid << "] Connecting to "
+          << params_.remoteAddress->describe() << " " << localAddress;
   session_->startNow();
   quicClient_->start(session_);
 }
@@ -72,10 +81,11 @@ void TGClient::start() {
 void TGClient::close() {
   if (connState_ == ConnCallbackState::NONE) {
     LOG(ERROR) << "TODO: Check if this is problematic";
+  } else {
+    session_->drain();
+    session_->closeWhenIdle();
   }
   connState_ = ConnCallbackState::DONE;
-  session_->drain();
-  session_->closeWhenIdle();
 }
 
 void TGClient::connectSuccess() {
@@ -104,9 +114,9 @@ TGClient::sendRequest(const proxygen::URL& requestUrl) {
   }
   if (connState_ == ConnCallbackState::NONE) {
     return nullptr;
-    // selfSchedulingRequestRunner = [&]() { sendRequest(requestUrl); };
-    // evb_->timer().scheduleTimeoutFn(selfSchedulingRequestRunner,
-    //                                 std::chrono::milliseconds(1000));
+  }
+  if (!createdStreams.empty() && !createdStreams.back()->ended()) {
+    return nullptr;
   }
 
   // Pass IP:PORT to client
@@ -128,16 +138,6 @@ TGClient::sendRequest(const proxygen::URL& requestUrl) {
   if (cb_) {
     client->setCallback(cb_.value());
   }
-
-  uint64_t numOpenableStreams =
-      quicClient_->getNumOpenableBidirectionalStreams();
-  uint32_t incomingStreams = session_->getNumIncomingStreams();
-  uint32_t outgoingStreams = session_->getNumOutgoingStreams();
-  VLOG(1) << "out streams: " << outgoingStreams;
-  VLOG(1) << "inc streams: " << incomingStreams;
-  VLOG(1) << "openable streams: " << numOpenableStreams;
-  VLOG(1) << "logging: " << params_.logResponse;
-  VLOG(1) << "path: " << requestUrl.getPath();
 
   client->setLogging(false);
   auto txn = session_->newTransaction(client.get());

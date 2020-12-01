@@ -29,7 +29,13 @@ namespace samples {
 
 class TGClient : private proxygen::HQSession::ConnectCallback {
 
-  enum class ConnCallbackState { NONE, CONNECT_SUCCESS, REPLAY_SAFE, DONE };
+  enum class ConnCallbackState {
+    NONE,
+    STARTING,
+    CONNECT_SUCCESS,
+    REPLAY_SAFE,
+    DONE
+  };
 
  public:
   explicit TGClient(const HQParams params,
@@ -44,9 +50,15 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
     return connState_ != ConnCallbackState::DONE;
   }
 
+  bool connected() {
+    return (connState_ == ConnCallbackState::CONNECT_SUCCESS) ||
+           (connState_ == ConnCallbackState::REPLAY_SAFE);
+  }
+
   bool isIdle() {
-    return createdStreams.empty() ||
-           (!createdStreams.empty() && createdStreams.back()->ended());
+    return connected() &&
+           (createdStreams.empty() ||
+            (!createdStreams.empty() && createdStreams.back()->ended()));
   }
 
   proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
@@ -54,6 +66,13 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
   void setCallback(
       const std::shared_ptr<ConnHandler::CallbackHandler>& cbHandler) {
     cb_ = cbHandler;
+  }
+
+  uint16_t getConnectedPort() {
+    if (connState_ == ConnCallbackState::CONNECT_SUCCESS || connState_ == ConnCallbackState::REPLAY_SAFE) {
+      return session_->getLocalAddress().getPort();
+    }
+    return 0;
   }
 
  private:

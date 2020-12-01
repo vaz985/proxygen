@@ -15,8 +15,8 @@
 
 #include <folly/Optional.h>
 #include <folly/SocketAddress.h>
-#include <proxygen/httpclient/samples/curl/CurlClient.h>
 #include <proxygen/httpserver/HTTPServerOptions.h>
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnHandler.h>
 #include <proxygen/lib/http/HTTPHeaders.h>
 #include <proxygen/lib/http/HTTPMethod.h>
 #include <quic/QuicConstants.h>
@@ -35,7 +35,7 @@ struct HTTPVersion {
 
 std::ostream& operator<<(std::ostream& o, const HTTPVersion& v);
 
-enum class HQMode { INVALID, CLIENT, SERVER, MCLIENT };
+enum class HQMode { INVALID, CLIENT, SERVER, MULTIPLE };
 
 std::ostream& operator<<(std::ostream& o, const HQMode& m);
 
@@ -45,13 +45,18 @@ std::ostream& operator<<(std::ostream& o, const HQMode& m);
  * TODO: Split h2 and h3
  */
 struct HQParams {
-  // New section
+  // FBTCP
   uint32_t cid;
+  uint32_t serverGroup;
+  uint32_t clientGroup;
   uint32_t reuseProb;
   uint32_t numClients;
   uint32_t maxConcurrent;
   std::string trafficPath;
   uint32_t duration;
+
+  std::string clientLogs;
+  std::string eventLogs;
 
   // General section
   HQMode mode;
@@ -78,6 +83,7 @@ struct HQParams {
   folly::Optional<int64_t> rateLimitPerThread;
   std::chrono::milliseconds connectTimeout;
   std::string ccpConfig;
+  bool sendKnobFrame;
 
   // HTTP section
   uint16_t h2port;
@@ -116,10 +122,10 @@ struct HQParams {
   std::shared_ptr<quic::QuicPskCache> pskCache;
   fizz::server::ClientAuthMode clientAuth{fizz::server::ClientAuthMode::None};
 
-  bool migrateClient{false};
+  // Transport knobs
+  std::string transportKnobs;
 
-  // New options
-  bool write_to_null;
+  bool migrateClient{false};
 };
 
 struct HQInvalidParam {

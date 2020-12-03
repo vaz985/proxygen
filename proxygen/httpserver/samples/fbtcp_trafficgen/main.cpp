@@ -50,9 +50,6 @@ int main(int argc, char* argv[]) {
       case HQMode::CLIENT:
         TrafficGenerator(params).start();
         break;
-      case HQMode::MULTIPLE:
-        TrafficGenerator(params).startMultiple();
-        break;
       default:
         LOG(ERROR) << "Unknown mode specified: ";
         return -1;

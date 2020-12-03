@@ -30,119 +30,7 @@ using TimePoint = std::chrono::time_point<Clock>;
 
 namespace quic { namespace samples {
 
-TrafficGenerator::TrafficGenerator(HQParams& params) : params_(params) {
-}
-
-void TrafficGenerator::start() {
-  //   folly::EventBase evb;
-  //   std::thread th([&] { evb.loopForever(); });
-  //
-  //   // Parsing traffic profile
-  //   std::ifstream jsonFile(params_.trafficPath);
-  //   std::stringstream jsonString;
-  //   jsonString << jsonFile.rdbuf();
-  //   auto trafficCfg = folly::parseJson(jsonString.str());
-  //   std::priority_queue<TrafficComponent> pq;
-  //   for (auto it : trafficCfg["cross_traffic_components"]) {
-  //     std::string name = "/" + it["name"].asString();
-  //     double rate = it["rate"].asDouble();
-  //     pq.emplace(name, rate);
-  //   }
-  //
-  //   // Reuse generator
-  //   std::uniform_int_distribution<uint32_t> reuseDistrib(0, 100);
-  //
-  //   // log callback
-  //   uint32_t cid = params_.cid;
-  //   std::string logPath =
-  //       params_.clientLogs + "/client-" + std::to_string(cid) + ".log";
-  //   auto fp =
-  //       folly::File::makeFile(logPath, O_WRONLY | O_TRUNC | O_CREAT).value();
-  //   std::shared_ptr<ConnCallback> cb_ =
-  //       std::make_shared<ConnCallback>(std::move(fp));
-  //
-  //   // main loop
-  //   uint32_t duration = params_.duration;
-  //   TimePoint startTime = Clock::now();
-  //   TimePoint endTime = startTime + std::chrono::seconds(duration);
-  //
-  //   std::vector<std::unique_ptr<TGClient>> createdConnections;
-  //   uint64_t nextClientNum = 0;
-  //   std::unordered_map<uint64_t, TGClient*> runningConnections;
-  //
-  //   while (true) {
-  //     TimePoint curTime = Clock::now();
-  //     if (curTime > endTime) {
-  //       break;
-  //     }
-  //
-  //     TrafficComponent topElement = pq.top();
-  //     std::this_thread::sleep_until(topElement.nextEvent);
-  //
-  //     // Check connections status, unless the connection cap is ultra huge
-  //     // this should have low time cost to process
-  //     std::vector<uint64_t> completedConnections;
-  //     std::vector<TGClient*> idleConnectionVec;
-  //     for (auto it = runningConnections.begin();
-  //          it != runningConnections.end();) {
-  //       auto next = std::next(it);
-  //       TGClient* curConn = it->second;
-  //       if (!curConn->isRunning()) {
-  //         runningConnections.erase(it);
-  //       } else if (curConn->isIdle()) {
-  //         idleConnectionVec.push_back(curConn);
-  //       }
-  //       it = next;
-  //     }
-  //
-  //     CHECK(idleConnectionVec.size() <= runningConnections.size());
-  //
-  //     // Too many running connections, wait for the next event
-  //     if (idleConnectionVec.empty() &&
-  //         (runningConnections.size() >= params_.maxConcurrent)) {
-  //       continue;
-  //     }
-  //
-  //     // LOG(INFO) << "Requesting " << topElement.url_.getPath();
-  //
-  //     // If no idle connection is available we create a connection
-  //     // and request a file
-  //     if (idleConnectionVec.empty()) {
-  //       // LOG(INFO) << "Creating new connection";
-  //       createdConnections.emplace_back(params_, &evb, topElement.url_);
-  //       createdConnections.back()->setCallback(cb_);
-  //       runningConnections[nextClientNum++] =
-  //       createdConnections.back().get(); evb.runInEventBaseThread([&]() {
-  //       createdConnections.back()->start(); });
-  //     }
-  //     // Else, we reuse a randomly choosen dle connection
-  //     else {
-  //       std::uniform_int_distribution<> idleConnectionGen(
-  //           0, idleConnectionVec.size() - 1);
-  //       TGClient* idleConnection = idleConnectionVec[idleConnectionGen(gen)];
-  //
-  //       // LOG(INFO) << "Reusing connection";
-  //       evb.runInEventBaseThread(
-  //           [&]() { idleConnection->sendRequest(topElement.url_); });
-  //
-  //       // Close the connection after processing every request
-  //       bool shouldClose = (reuseDistrib(gen) > params_.reuseProb) ? true :
-  //       false; if (shouldClose) {
-  //         // LOG(INFO) << "Closing last connection";
-  //         evb.runInEventBaseThread([&]() { idleConnection->close(); });
-  //       }
-  //     }
-  //
-  //     pq.pop();
-  //     topElement.updateEvent();
-  //     pq.push(topElement);
-  //
-  //     // std::this_thread::sleep_for(std::chrono::seconds(2));
-  //   }
-  //   LOG(INFO) << "ENDED";
-  //   evb.terminateLoopSoon();
-  //   th.join();
-}
+TrafficGenerator::TrafficGenerator(HQParams& params) : params_(params) {}
 
 struct Client {
   uint32_t cid_;
@@ -180,7 +68,6 @@ static void clientLoop(std::shared_ptr<Client> client) {
   uint32_t cid = client->cid_;
   folly::EventBase* evb = client->evb_;
   HQParams params = client->params_;
-  params.cid = cid;
   std::priority_queue<TrafficComponent>* pq = &(client->pq_);
 
   // Reuse generator
@@ -257,7 +144,7 @@ static void clientLoop(std::shared_ptr<Client> client) {
 
     CHECK(idleConnectionVec.size() <= runningConnections.size());
 
-    // Too many running connections, wait for the next event
+    // Too many running and no idle connections, go for to the next event
     if (idleConnectionVec.empty() &&
         (runningConnections.size() >= params.maxConcurrent)) {
       continue;
@@ -284,14 +171,16 @@ static void clientLoop(std::shared_ptr<Client> client) {
 
       // Close the connection after processing every request
       if (idleConnection->connected()) {
-        bool shouldClose = (reuseDistrib(gen) > params.reuseProb) ? true : false;
+        bool shouldClose =
+            (reuseDistrib(gen) > params.reuseProb) ? true : false;
         if (shouldClose) {
-          LOG_IF(INFO, cid == 0) << "[CID 0] Closing connection " << idleConnectionNum;
+          LOG_IF(INFO, cid == 0)
+              << "[CID 0] Closing connection " << idleConnectionNum;
           evb->runInEventBaseThread([&]() { idleConnection->close(); });
           runningConnections.erase(idleConnectionNum);
-        }
-        else {
-          LOG_IF(INFO, cid == 0) << "[CID 0] Reusing connection " << idleConnectionNum;
+        } else {
+          LOG_IF(INFO, cid == 0)
+              << "[CID 0] Reusing connection " << idleConnectionNum;
           evb->runInEventBaseThread(
               [&]() { idleConnection->sendRequest(topElement.url_); });
         }
@@ -301,13 +190,11 @@ static void clientLoop(std::shared_ptr<Client> client) {
     pq->pop();
     topElement.updateEvent();
     pq->push(topElement);
-
-    // std::this_thread::sleep_for(std::chrono::seconds(2));
   }
-  LOG(INFO) << "[CID " << params.cid << "] Ended!";
+  LOG(INFO) << "[CID " << cid << "] Ended!";
 }
 
-void TrafficGenerator::startMultiple() {
+void TrafficGenerator::start() {
   std::vector<std::unique_ptr<folly::ScopedEventBaseThread>> workerEvbs_;
 
   uint32_t numWorkers = std::thread::hardware_concurrency();

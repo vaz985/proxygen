@@ -27,8 +27,6 @@ class TrafficGenerator {
 
   void start();
 
-  void startMultiple();
-
  private:
   HQParams& params_;
 };

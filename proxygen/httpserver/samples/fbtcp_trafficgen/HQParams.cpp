@@ -19,19 +19,17 @@
 #include <proxygen/lib/transport/PersistentQuicPskCache.h>
 #include <quic/QuicConstants.h>
 
-DEFINE_uint32(numClients, 0, "");
-
-DEFINE_uint32(cid, 0, "");
-DEFINE_uint32(reuseProb, 100, "Connection reuse probability [0, 100]%");
-DEFINE_uint32(maxConcurrent, 1, "");
-DEFINE_string(trafficPath, "", "");
-DEFINE_uint32(duration, 10, "");
-
-// FBTCP Settings
+// FBTCP General Settings
 DEFINE_uint32(server_group, 0, "");
-DEFINE_uint32(client_group, 0, "");
-DEFINE_string(client_logs, "", "");
+// FBTCP Server Settings
 DEFINE_string(event_logs, "", "");
+// FBTCP Client Settings
+DEFINE_uint32(num_clients, 0, "Number of clients created to generate traffic");
+DEFINE_uint32(reuse_prob, 100, "Connection reuse probability [0, 100]%");
+DEFINE_string(traffic_path, "", "JSON traffic profile path");
+DEFINE_string(client_logs, "", "Path to store client logs");
+
+DEFINE_uint32(client_group, 0, "");
 
 DEFINE_string(host, "::1", "HQ server hostname/IP");
 DEFINE_int32(port, 6666, "HQ server port");
@@ -208,20 +206,17 @@ quic::ProbeSizeRaiserType parseRaiserType(uint32_t type) {
  *
  */
 void initializeCommonSettings(HQParams& hqParams) {
-  // New section
-  hqParams.cid = FLAGS_cid;
+  // FBTCP General Settings
+  hqParams.serverGroup = FLAGS_server_group;
+  // FBTCP Server Settings
+  hqParams.eventLogs = FLAGS_event_logs;
+  // FBTCP Client Settings
+  hqParams.numClients = FLAGS_num_clients;
+  hqParams.reuseProb = FLAGS_reuse_prob;
+  hqParams.trafficPath = FLAGS_traffic_path;
+  hqParams.clientLogs = FLAGS_client_logs;
 
   hqParams.clientGroup = FLAGS_client_group;
-  hqParams.serverGroup = FLAGS_server_group;
-
-  hqParams.reuseProb = FLAGS_reuseProb;
-  hqParams.numClients = FLAGS_numClients;
-  hqParams.maxConcurrent = FLAGS_maxConcurrent;
-  hqParams.trafficPath = FLAGS_trafficPath;
-  hqParams.duration = FLAGS_duration;
-
-  hqParams.clientLogs = FLAGS_client_logs;
-  hqParams.eventLogs = FLAGS_event_logs;
 
   // General section
   hqParams.host = FLAGS_host;
@@ -246,16 +241,7 @@ void initializeCommonSettings(HQParams& hqParams) {
           folly::SocketAddress(FLAGS_local_address, 0, true);
     }
     hqParams.outdir = FLAGS_outdir;
-  } else if (FLAGS_mode == "multiple") {
-    hqParams.mode = HQMode::MULTIPLE;
-    hqParams.logprefix = "multiple";
-    hqParams.remoteAddress =
-        folly::SocketAddress(hqParams.host, hqParams.port, true);
-    if (!FLAGS_local_address.empty()) {
-      hqParams.localAddress =
-          folly::SocketAddress(FLAGS_local_address, 0, true);
-    }
-  }
+  } 
 }
 
 void initializeTransportSettings(HQParams& hqParams) {
@@ -321,9 +307,7 @@ void initializeTransportSettings(HQParams& hqParams) {
   hqParams.transportSettings.turnoffPMTUD = true;
   hqParams.transportSettings.partialReliabilityEnabled = FLAGS_use_pr;
   if (hqParams.mode == HQMode::CLIENT) {
-    // There is no good reason to keep the socket around for a drain period for
-    // a commandline client
-    hqParams.transportSettings.shouldDrain = false;
+    hqParams.transportSettings.shouldDrain = true;
     hqParams.transportSettings.attemptEarlyData = FLAGS_early_data;
   }
   hqParams.transportSettings.connectUDP = FLAGS_connect_udp;

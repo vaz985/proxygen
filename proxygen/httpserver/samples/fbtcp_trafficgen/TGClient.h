@@ -69,7 +69,8 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
   }
 
   uint16_t getConnectedPort() {
-    if (connState_ == ConnCallbackState::CONNECT_SUCCESS || connState_ == ConnCallbackState::REPLAY_SAFE) {
+    if (connState_ == ConnCallbackState::CONNECT_SUCCESS ||
+        connState_ == ConnCallbackState::REPLAY_SAFE) {
       return session_->getLocalAddress().getPort();
     }
     return 0;

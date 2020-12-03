@@ -50,7 +50,7 @@ TGClient::TGClient(const HQParams params,
 
 void TGClient::start() {
   if (connState_ != ConnCallbackState::NONE) {
-    LOG(ERROR) << "EITA";
+    LOG(ERROR) << "Maybe we are requesting too fast after creating a new connection";
     return;
   }
   connState_ = ConnCallbackState::STARTING;
@@ -72,8 +72,7 @@ void TGClient::start() {
   if (params_.localAddress) {
     localAddress = params_.localAddress.value().describe();
   }
-  VLOG(2) << "[CID " << params_.cid << "] Connecting to "
-          << params_.remoteAddress->describe() << " " << localAddress;
+
   session_->startNow();
   quicClient_->start(session_);
 }
@@ -118,12 +117,6 @@ TGClient::sendRequest(const proxygen::URL& requestUrl) {
   if (!createdStreams.empty() && !createdStreams.back()->ended()) {
     return nullptr;
   }
-
-  // Pass IP:PORT to client
-  // auto localAddress = quicClient_->getLocalAddress();
-  // auto peerAddress = quicClient_->getPeerAddress();
-  // LOG(INFO) << localAddress.getAddressStr() << " " <<
-  // peerAddress.getAddressStr();
 
   std::unique_ptr<ConnHandler> client =
       std::make_unique<ConnHandler>(evb_,

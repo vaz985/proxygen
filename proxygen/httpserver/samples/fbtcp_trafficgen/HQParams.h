@@ -46,7 +46,6 @@ std::ostream& operator<<(std::ostream& o, const HQMode& m);
  */
 struct HQParams {
   // FBTCP
-  uint32_t cid;
   uint32_t serverGroup;
   uint32_t clientGroup;
   uint32_t reuseProb;

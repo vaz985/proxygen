@@ -419,7 +419,8 @@ void ConnectionObserver::packetLossDetected(
 
   std::vector<std::string> lostPackets;
   for (auto it : lossEvent.lostPackets) {
-    lostPackets.emplace_back(std::to_string(it.packet.packet.header.getPacketSequenceNum()));
+    lostPackets.emplace_back(
+        std::to_string(it.packet.packet.header.getPacketSequenceNum()));
   }
   // LOG(INFO) << "[SRC: " << src << "][DST: " << dst
   //           << "] Lost packets: " << folly::join(" ", lostPackets);

@@ -16,7 +16,6 @@
 #include <folly/io/async/EventBase.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnIdLogger.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/TGClient.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/TrafficGenerator.h>
 
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQServer.h>

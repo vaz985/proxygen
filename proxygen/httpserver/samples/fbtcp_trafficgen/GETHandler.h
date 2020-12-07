@@ -26,15 +26,16 @@ namespace samples {
 
 static std::uniform_int_distribution<uint32_t> requestIdGen;
 
-class ConnHandler
+// Rename to GETHandler
+class GETHandler
     : public proxygen::HTTPConnector::Callback
     , public proxygen::HTTPTransactionHandler {
 
  public:
-  enum class requestEventType { NONE, START, FINISH };
+  enum class eventType { NONE, START, FINISH };
   struct requestEvent {
     uint64_t tstamp_{0};
-    requestEventType type_{requestEventType::NONE};
+    eventType type_{eventType::NONE};
     uint32_t requestId_;
     std::string requestUrl_{""};
     std::string dst_;
@@ -43,7 +44,7 @@ class ConnHandler
     uint64_t bodyLength_{0};
     double bytesPerSecond_{0};
 
-    requestEvent(requestEventType eventType,
+    requestEvent(eventType eventType,
                  uint32_t requestId,
                  std::string requestUrl,
                  std::string dst,
@@ -66,27 +67,23 @@ class ConnHandler
     }
   };
 
-  class CallbackHandler {
+  class RequestLog {
    public:
     virtual void handleEvent(const requestEvent& ev) = 0;
   };
 
-  ConnHandler(folly::EventBase* evb,
-              // std::shared_ptr<quic::QuicClientTransport>& sock,
-              proxygen::HTTPMethod httpMethod,
-              const proxygen::URL& url,
-              const proxygen::URL* proxy,
-              const proxygen::HTTPHeaders& headers,
-              const std::string& inputFilename,
-              bool h2c = false,
-              unsigned short httpMajor = 1,
-              unsigned short httpMinor = 1);
+  GETHandler(folly::EventBase* evb,
+             // std::shared_ptr<quic::QuicClientTransport>& sock,
+             proxygen::HTTPMethod httpMethod,
+             const proxygen::URL& url,
+             const proxygen::URL* proxy,
+             const proxygen::HTTPHeaders& headers,
+             const std::string& inputFilename,
+             bool h2c = false,
+             unsigned short httpMajor = 1,
+             unsigned short httpMinor = 1);
 
-  virtual ~ConnHandler() = default;
-
-  bool saveResponseToFile(const std::string& outputFilename);
-
-  bool saveResponseToNull();
+  virtual ~GETHandler() = default;
 
   static proxygen::HTTPHeaders parseHeaders(const std::string& headersString);
 
@@ -132,15 +129,15 @@ class ConnHandler
     loggingEnabled_ = enabled;
   }
 
-  void setEOMFunc(std::function<void()> eomFunc) {
-    eomFunc_ = eomFunc;
+  void setNextFunc(std::function<void()> nextFunc) {
+    nextFunc_ = nextFunc;
   }
 
-  bool ended() {
-    return rcvEOM;
+  bool requestEnded() {
+    return ended;
   }
 
-  void setCallback(std::shared_ptr<CallbackHandler>& cbHandler) {
+  void setCallback(std::shared_ptr<RequestLog> cbHandler) {
     cb_ = cbHandler;
   }
 
@@ -167,19 +164,19 @@ class ConnHandler
   std::unique_ptr<std::ofstream> outputFile_;
   std::unique_ptr<std::ostream> outputStream_;
   bool partiallyReliable_{false};
-  folly::Optional<std::function<void()>> eomFunc_;
   TimePoint startTime;
   TimePoint endTime;
-  bool rcvEOM{false};
+  bool ended{false};
   uint64_t bodyLength{0};
-  folly::Optional<std::shared_ptr<CallbackHandler>> cb_;
+  folly::Optional<std::shared_ptr<RequestLog>> cb_;
   uint32_t requestId_ = requestIdGen(gen);
+  folly::Optional<std::function<void()>> nextFunc_;
 };
 
-class ConnCallback : public ConnHandler::CallbackHandler {
+class RequestLog : public GETHandler::RequestLog {
  public:
-  ConnCallback(folly::Optional<folly::File>&& outputFile);
-  void handleEvent(const ConnHandler::requestEvent& ev) override;
+  RequestLog(folly::Optional<folly::File>&& outputFile);
+  void handleEvent(const GETHandler::requestEvent& ev) override;
 
  private:
   folly::Optional<folly::File> outputFile_;

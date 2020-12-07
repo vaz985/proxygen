@@ -11,7 +11,7 @@
 #include <list>
 #include <memory>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnHandler.h>
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
@@ -27,50 +27,50 @@ class FileQLogger;
 
 namespace samples {
 
-class TGClient : private proxygen::HQSession::ConnectCallback {
+// Rename to ClientConnection
+class TGConnection : private proxygen::HQSession::ConnectCallback {
 
-  enum class ConnCallbackState {
-    NONE,
-    STARTING,
-    CONNECT_SUCCESS,
-    REPLAY_SAFE,
-    DONE
+  enum class ConnectionState {
+    NONE = 0,
+    CONNECT_SUCCESS = 1,
+    REPLAY_SAFE = 2,
+    DONE = 3
   };
 
  public:
-  explicit TGClient(const HQParams params,
-                    folly::EventBase* evb,
-                    const proxygen::URL& requestUrl);
+  explicit TGConnection(const HQParams params, folly::EventBase* evb);
 
   void start();
 
-  void close();
+  void startClosing();
 
-  bool isRunning() {
-    return connState_ != ConnCallbackState::DONE;
-  }
-
+  // If connected, is safe to access session_
   bool connected() {
-    return (connState_ == ConnCallbackState::CONNECT_SUCCESS) ||
-           (connState_ == ConnCallbackState::REPLAY_SAFE);
+    return connState_ == ConnectionState::CONNECT_SUCCESS ||
+           connState_ == ConnectionState::REPLAY_SAFE;
   }
 
   bool isIdle() {
-    return connected() &&
-           (createdStreams.empty() ||
-            (!createdStreams.empty() && createdStreams.back()->ended()));
+    return connected() && (createdRequests.empty() ||
+                           (!createdRequests.empty() &&
+                            createdRequests.back()->requestEnded()));
+  }
+
+  bool ended() {
+    return !connected() && (createdRequests.empty() ||
+                            (!createdRequests.empty() &&
+                             createdRequests.back()->requestEnded()));
   }
 
   proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
 
-  void setCallback(
-      const std::shared_ptr<ConnHandler::CallbackHandler>& cbHandler) {
+  void setCallback(const std::shared_ptr<GETHandler::RequestLog> cbHandler) {
     cb_ = cbHandler;
   }
 
   uint16_t getConnectedPort() {
-    if (connState_ == ConnCallbackState::CONNECT_SUCCESS ||
-        connState_ == ConnCallbackState::REPLAY_SAFE) {
+    if (connState_ == ConnectionState::CONNECT_SUCCESS ||
+        connState_ == ConnectionState::REPLAY_SAFE) {
       return session_->getLocalAddress().getPort();
     }
     return 0;
@@ -85,11 +85,11 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
 
   void initializeQuicClient();
 
+  void close();
+
   const HQParams params_;
 
   folly::EventBase* evb_;
-
-  const proxygen::URL& firstRequest;
 
   std::shared_ptr<quic::QuicClientTransport> quicClient_;
 
@@ -97,11 +97,14 @@ class TGClient : private proxygen::HQSession::ConnectCallback {
 
   proxygen::HQUpstreamSession* session_;
 
-  std::list<std::unique_ptr<ConnHandler>> createdStreams;
+  std::list<std::unique_ptr<GETHandler>> createdRequests;
 
-  ConnCallbackState connState_{ConnCallbackState::NONE};
+  ConnectionState connState_{ConnectionState::NONE};
 
-  folly::Optional<std::shared_ptr<ConnHandler::CallbackHandler>> cb_;
+  folly::Optional<std::shared_ptr<GETHandler::RequestLog>> cb_;
+
+  proxygen::URL nextURL;
+  folly::Optional<std::function<void()>> nextRequest;
 };
 
 } // namespace samples

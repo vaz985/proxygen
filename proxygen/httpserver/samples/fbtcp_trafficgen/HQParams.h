@@ -16,7 +16,7 @@
 #include <folly/Optional.h>
 #include <folly/SocketAddress.h>
 #include <proxygen/httpserver/HTTPServerOptions.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnHandler.h>
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
 #include <proxygen/lib/http/HTTPHeaders.h>
 #include <proxygen/lib/http/HTTPMethod.h>
 #include <quic/QuicConstants.h>
@@ -49,10 +49,13 @@ struct HQParams {
   uint32_t serverGroup;
   uint32_t clientGroup;
   uint32_t reuseProb;
-  uint32_t numClients;
   uint32_t maxConcurrent;
   std::string trafficPath;
   uint32_t duration;
+
+  // FBTCP TrafficGenerator
+  uint32_t numClients;
+  uint32_t numWorkers{std::thread::hardware_concurrency()};
 
   std::string clientLogs;
   std::string eventLogs;

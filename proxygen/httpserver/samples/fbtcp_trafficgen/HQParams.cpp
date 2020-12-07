@@ -23,12 +23,13 @@
 DEFINE_uint32(server_group, 0, "");
 // FBTCP Server Settings
 DEFINE_string(event_logs, "", "");
-// FBTCP Client Settings
+
+// FBTCP TrafficGenerator Settings
 DEFINE_uint32(num_clients, 0, "Number of clients created to generate traffic");
+DEFINE_uint32(num_workers, 0, "Number of EventBase's handling requests");
 DEFINE_uint32(reuse_prob, 100, "Connection reuse probability [0, 100]%");
 DEFINE_string(traffic_path, "", "JSON traffic profile path");
-DEFINE_string(client_logs, "", "Path to store client logs");
-
+DEFINE_string(client_logs, "/tmp/log", "Path to store client logs");
 DEFINE_uint32(client_group, 0, "");
 
 DEFINE_string(host, "::1", "HQ server hostname/IP");
@@ -210,12 +211,15 @@ void initializeCommonSettings(HQParams& hqParams) {
   hqParams.serverGroup = FLAGS_server_group;
   // FBTCP Server Settings
   hqParams.eventLogs = FLAGS_event_logs;
-  // FBTCP Client Settings
+
+  // FBTCP TrafficGenerator Settings
   hqParams.numClients = FLAGS_num_clients;
+  if (FLAGS_num_workers > 0) {
+    hqParams.numWorkers = FLAGS_num_workers;
+  }
   hqParams.reuseProb = FLAGS_reuse_prob;
   hqParams.trafficPath = FLAGS_traffic_path;
   hqParams.clientLogs = FLAGS_client_logs;
-
   hqParams.clientGroup = FLAGS_client_group;
 
   // General section
@@ -241,7 +245,7 @@ void initializeCommonSettings(HQParams& hqParams) {
           folly::SocketAddress(FLAGS_local_address, 0, true);
     }
     hqParams.outdir = FLAGS_outdir;
-  } 
+  }
 }
 
 void initializeTransportSettings(HQParams& hqParams) {
@@ -371,7 +375,7 @@ void initializeHttpSettings(HQParams& hqParams) {
 
   // parse HTTP headers
   hqParams.httpHeadersString = FLAGS_headers;
-  hqParams.httpHeaders = ConnHandler::parseHeaders(hqParams.httpHeadersString);
+  hqParams.httpHeaders = GETHandler::parseHeaders(hqParams.httpHeadersString);
 
   // Set the host header
   if (!hqParams.httpHeaders.exists(proxygen::HTTP_HEADER_HOST)) {

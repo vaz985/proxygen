@@ -19,7 +19,7 @@
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/FizzContext.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/InsecureVerifierDangerousDoNotUseInProduction.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/TGClient.h>
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/TGConnection.h>
 #include <proxygen/lib/http/codec/HTTP1xCodec.h>
 #include <proxygen/lib/utils/UtilInl.h>
 
@@ -38,22 +38,21 @@ namespace quic { namespace samples {
 //   return std::string(buffer);
 // }
 
-TGClient::TGClient(const HQParams params,
-                   folly::EventBase* evb,
-                   const proxygen::URL& requestUrl)
-    : params_(params), evb_(evb), firstRequest(requestUrl) {
+TGConnection::TGConnection(const HQParams params, folly::EventBase* evb)
+    : params_(params), evb_(evb) {
   if (params_.transportSettings.pacingEnabled) {
     pacingTimer_ = TimerHighRes::newTimer(
         evb_, params_.transportSettings.pacingTimerTickInterval);
   }
 }
 
-void TGClient::start() {
-  if (connState_ != ConnCallbackState::NONE) {
-    LOG(ERROR) << "Maybe we are requesting too fast after creating a new connection";
+void TGConnection::start() {
+  if (connState_ != ConnectionState::NONE) {
+    // LOG(ERROR)
+    //     << "Maybe we are requesting too fast after creating a new
+    //     connection";
     return;
   }
-  connState_ = ConnCallbackState::STARTING;
 
   initializeQuicClient();
 
@@ -68,83 +67,90 @@ void TGClient::start() {
   session_->setSocket(quicClient_);
   session_->setConnectCallback(this);
 
-  std::string localAddress = "";
-  if (params_.localAddress) {
-    localAddress = params_.localAddress.value().describe();
-  }
-
   session_->startNow();
   quicClient_->start(session_);
 }
 
-void TGClient::close() {
-  if (connState_ == ConnCallbackState::NONE) {
-    LOG(ERROR) << "TODO: Check if this is problematic";
-  } else {
-    session_->drain();
-    session_->closeWhenIdle();
+void TGConnection::connectSuccess() {
+  connState_ = ConnectionState::CONNECT_SUCCESS;
+  // LOG(INFO) << "Connection successful on " << session_->getLocalAddress().describe();
+  if (nextRequest) {
+    nextRequest.value()();
+    nextRequest.clear();
   }
-  connState_ = ConnCallbackState::DONE;
 }
 
-void TGClient::connectSuccess() {
-  connState_ = ConnCallbackState::CONNECT_SUCCESS;
-  VLOG(1) << "connectSuccess";
-  sendRequest(firstRequest);
-}
-
-void TGClient::onReplaySafe() {
-  connState_ = ConnCallbackState::REPLAY_SAFE;
+void TGConnection::onReplaySafe() {
+  connState_ = ConnectionState::REPLAY_SAFE;
   VLOG(1) << "Transport replay safe";
+  if (nextRequest) {
+    nextRequest.value()();
+    nextRequest.clear();
+  }
 }
 
-void TGClient::connectError(std::pair<quic::QuicErrorCode, std::string> error) {
-  connState_ = ConnCallbackState::DONE;
-  LOG(ERROR) << "TGClient failed to connect, error=" << toString(error.first)
-             << ", msg=" << error.second;
+void TGConnection::connectError(
+    std::pair<quic::QuicErrorCode, std::string> error) {
+  connState_ = ConnectionState::DONE;
+  // LOG(ERROR) << "TGConnection failed to connect, error="
+  //            << toString(error.first) << ", msg=" << error.second;
 }
 
 static std::function<void()> selfSchedulingRequestRunner;
 
 proxygen::HTTPTransaction* FOLLY_NULLABLE
-TGClient::sendRequest(const proxygen::URL& requestUrl) {
-  if (connState_ == ConnCallbackState::DONE) {
+TGConnection::sendRequest(const proxygen::URL& requestUrl) {
+  if (connState_ == ConnectionState::DONE) {
+    // LOG(INFO) << "Stopped request, DONE";
     return nullptr;
   }
-  if (connState_ == ConnCallbackState::NONE) {
+  // We set the request to run when the connection is established
+  if (connState_ == ConnectionState::NONE) {
+    // LOG(INFO) << "Request after connect, NONE";
+    nextURL = requestUrl;
+    nextRequest = [&]() { sendRequest(nextURL); };
     return nullptr;
   }
-  if (!createdStreams.empty() && !createdStreams.back()->ended()) {
-    return nullptr;
-  }
-
-  std::unique_ptr<ConnHandler> client =
-      std::make_unique<ConnHandler>(evb_,
-                                    params_.httpMethod,
-                                    requestUrl,
-                                    nullptr,
-                                    params_.httpHeaders,
-                                    params_.httpBody,
-                                    false,
-                                    params_.httpVersion.major,
-                                    params_.httpVersion.minor);
+  // if (!createdRequests.empty() && !createdRequests.back()->ended()) {
+  //   // LOG(INFO) << "Stopped request, last stream still running";
+  //   return nullptr;
+  // }
+  // if (!quicClient_->good()) {
+  //   // LOG(INFO) << "Stopped request, quicClient not good";
+  //   return nullptr;
+  // }
+  // if (quicClient_->error()) {
+  //   // LOG(INFO) << "Stopped request, quicClient error";
+  //   return nullptr;
+  // }
+  // LOG(INFO) << "Running request " << requestUrl.getPath();
+  std::unique_ptr<GETHandler> request =
+      std::make_unique<GETHandler>(evb_,
+                                   params_.httpMethod,
+                                   requestUrl,
+                                   nullptr,
+                                   params_.httpHeaders,
+                                   params_.httpBody,
+                                   false,
+                                   params_.httpVersion.major,
+                                   params_.httpVersion.minor);
   if (cb_) {
-    client->setCallback(cb_.value());
+    request->setCallback(cb_.value());
   }
 
-  client->setLogging(false);
-  auto txn = session_->newTransaction(client.get());
+  request->setLogging(false);
+  auto txn = session_->newTransaction(request.get());
   if (!txn) {
     return nullptr;
   }
-  client->sendRequest(txn);
+  request->sendRequest(txn);
   // The emplace guarantees that no other stream will be created before rcving
   // EOM, maybe we should guarantee this earlier
-  createdStreams.emplace_back(std::move(client));
+  createdRequests.emplace_back(std::move(request));
   return txn;
 }
 
-void TGClient::initializeQuicClient() {
+void TGConnection::initializeQuicClient() {
   auto sock = std::make_unique<folly::AsyncUDPSocket>(evb_);
   auto client = std::make_shared<quic::QuicClientTransport>(
       evb_,
@@ -168,6 +174,20 @@ void TGClient::initializeQuicClient() {
   client->setSupportedVersions(params_.quicVersions);
 
   quicClient_ = std::move(client);
+}
+
+void TGConnection::startClosing() {
+  if (!createdRequests.empty() && !createdRequests.back()->requestEnded()) {
+    createdRequests.back()->setNextFunc([&]() { close(); });
+  } else if (connState_ != ConnectionState::NONE) {
+    close();
+  }
+  connState_ = ConnectionState::DONE;
+}
+
+void TGConnection::close() {
+  session_->drain();
+  session_->closeWhenIdle();
 }
 
 }} // namespace quic::samples

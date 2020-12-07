@@ -157,8 +157,8 @@ if (BUILD_QUIC)
       samples/fbtcp_trafficgen/PartiallyReliableCurlClient.cpp
       samples/fbtcp_trafficgen/SampleHandlers.cpp
       samples/fbtcp_trafficgen/TrafficGenerator.cpp
-      samples/fbtcp_trafficgen/TGClient.cpp
-      samples/fbtcp_trafficgen/ConnHandler.cpp
+      samples/fbtcp_trafficgen/TGConnection.cpp
+      samples/fbtcp_trafficgen/GETHandler.cpp
       samples/fbtcp_trafficgen/Utils.cpp
   )
   target_compile_options(

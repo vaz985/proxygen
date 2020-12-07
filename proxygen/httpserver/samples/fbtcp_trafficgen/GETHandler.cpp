@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnHandler.h>
+#include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
 
 #include <iostream>
 #include <sys/stat.h>
@@ -28,15 +28,15 @@ DECLARE_int32(recv_window);
 
 namespace quic { namespace samples {
 
-ConnHandler::ConnHandler(EventBase* evb,
-                         HTTPMethod httpMethod,
-                         const proxygen::URL& url,
-                         const proxygen::URL* proxy,
-                         const HTTPHeaders& headers,
-                         const string& inputFilename,
-                         bool h2c,
-                         unsigned short httpMajor,
-                         unsigned short httpMinor)
+GETHandler::GETHandler(EventBase* evb,
+                       HTTPMethod httpMethod,
+                       const proxygen::URL& url,
+                       const proxygen::URL* proxy,
+                       const HTTPHeaders& headers,
+                       const string& inputFilename,
+                       bool h2c,
+                       unsigned short httpMajor,
+                       unsigned short httpMinor)
     : evb_(evb),
       httpMethod_(httpMethod),
       url_(url),
@@ -54,43 +54,7 @@ ConnHandler::ConnHandler(EventBase* evb,
   });
 }
 
-bool ConnHandler::saveResponseToFile(const std::string& outputFilename) {
-  std::streambuf* buf;
-  if (outputFilename.empty()) {
-    return false;
-  }
-  uint16_t tries = 0;
-  while (tries < std::numeric_limits<uint16_t>::max()) {
-    std::string suffix = (tries == 0) ? "" : folly::to<std::string>("_", tries);
-    auto filename = folly::to<std::string>(outputFilename, suffix);
-    struct stat statBuf;
-    if (stat(filename.c_str(), &statBuf) == -1) {
-      outputFile_ =
-          std::make_unique<ofstream>(filename, ios::out | ios::binary);
-      if (*outputFile_ && outputFile_->good()) {
-        buf = outputFile_->rdbuf();
-        outputStream_ = std::make_unique<std::ostream>(buf);
-        return true;
-      }
-    }
-    tries++;
-  }
-  return false;
-}
-
-bool ConnHandler::saveResponseToNull() {
-  std::streambuf* buf;
-  auto filename = std::string("/dev/null");
-  outputFile_ = std::make_unique<ofstream>(filename, ios::out | ios::binary);
-  if (*outputFile_ && outputFile_->good()) {
-    buf = outputFile_->rdbuf();
-    outputStream_ = std::make_unique<std::ostream>(buf);
-    return true;
-  }
-  return false;
-}
-
-HTTPHeaders ConnHandler::parseHeaders(const std::string& headersString) {
+HTTPHeaders GETHandler::parseHeaders(const std::string& headersString) {
   vector<StringPiece> headersList;
   HTTPHeaders headers;
   folly::split(",", headersString, headersList);
@@ -114,10 +78,10 @@ HTTPHeaders ConnHandler::parseHeaders(const std::string& headersString) {
   return headers;
 }
 
-void ConnHandler::initializeSsl(const string& caPath,
-                                const string& nextProtos,
-                                const string& certPath,
-                                const string& keyPath) {
+void GETHandler::initializeSsl(const string& caPath,
+                               const string& nextProtos,
+                               const string& certPath,
+                               const string& keyPath) {
   sslContext_ = std::make_shared<folly::SSLContext>();
   sslContext_->setOptions(SSL_OP_NO_COMPRESSION);
   sslContext_->setCipherList(folly::ssl::SSLCommonOptions::ciphers());
@@ -134,7 +98,7 @@ void ConnHandler::initializeSsl(const string& caPath,
   h2c_ = false;
 }
 
-void ConnHandler::sslHandshakeFollowup(HTTPUpstreamSession* session) noexcept {
+void GETHandler::sslHandshakeFollowup(HTTPUpstreamSession* session) noexcept {
   AsyncSSLSocket* sslSocket =
       dynamic_cast<AsyncSSLSocket*>(session->getTransport());
 
@@ -153,11 +117,11 @@ void ConnHandler::sslHandshakeFollowup(HTTPUpstreamSession* session) noexcept {
   // passing it to the connector::connectSSL() method
 }
 
-void ConnHandler::setFlowControlSettings(int32_t recvWindow) {
+void GETHandler::setFlowControlSettings(int32_t recvWindow) {
   recvWindow_ = recvWindow;
 }
 
-void ConnHandler::connectSuccess(HTTPUpstreamSession* session) {
+void GETHandler::connectSuccess(HTTPUpstreamSession* session) {
 
   if (url_.isSecure()) {
     sslHandshakeFollowup(session);
@@ -168,7 +132,7 @@ void ConnHandler::connectSuccess(HTTPUpstreamSession* session) {
   session->closeWhenIdle();
 }
 
-void ConnHandler::setupHeaders() {
+void GETHandler::setupHeaders() {
   request_.setMethod(httpMethod_);
   request_.setHTTPVersion(httpMajor_, httpMinor_);
   if (proxy_) {
@@ -199,7 +163,7 @@ void ConnHandler::setupHeaders() {
   }
 }
 
-void ConnHandler::sendRequest(HTTPTransaction* txn) {
+void GETHandler::sendRequest(HTTPTransaction* txn) {
   txn_ = txn;
   setupHeaders();
   txn_->sendHeadersWithEOM(request_);
@@ -214,14 +178,13 @@ void ConnHandler::sendRequest(HTTPTransaction* txn) {
   std::string src = localAddress.getAddressStr() + ":" +
                     std::to_string(localAddress.getPort());
 
-  requestEvent ev(
-      requestEventType::START, requestId_, url_.getPath(), dst, src);
+  requestEvent ev(eventType::START, requestId_, url_.getPath(), dst, src);
   if (cb_) {
     cb_->get()->handleEvent(ev);
   }
 }
 
-void ConnHandler::sendBodyFromFile() {
+void GETHandler::sendBodyFromFile() {
   const uint16_t kReadSize = 4096;
   CHECK(inputFile_);
   // Reading from the file by chunks
@@ -241,21 +204,26 @@ void ConnHandler::sendBodyFromFile() {
   }
 }
 
-void ConnHandler::connectError(const folly::AsyncSocketException& ex) {
+void GETHandler::connectError(const folly::AsyncSocketException& ex) {
   LOG(ERROR) << "Coudln't connect to " << url_.getHostAndPort() << ":"
              << ex.what();
 }
 
-void ConnHandler::setTransaction(HTTPTransaction*) noexcept {
+void GETHandler::setTransaction(HTTPTransaction*) noexcept {
 }
 
-void ConnHandler::detachTransaction() noexcept {
+void GETHandler::detachTransaction() noexcept {
+  ended = true;
+  if (nextFunc_) {
+    auto& fn = nextFunc_.value();
+    fn();
+  }
 }
 
-void ConnHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
+void GETHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
 }
 
-void ConnHandler::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {
+void GETHandler::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {
   CHECK(outputStream_);
   if (chain) {
     const IOBuf* p = chain.get();
@@ -268,13 +236,13 @@ void ConnHandler::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {
   }
 }
 
-void ConnHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
+void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Discarding trailers";
 }
 
-void ConnHandler::onEOM() noexcept {
+void GETHandler::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
-  rcvEOM = true;
+
   endTime = Clock::now();
 
   folly::SocketAddress localAddress = txn_->getLocalAddress();
@@ -289,7 +257,7 @@ void ConnHandler::onEOM() noexcept {
       endTime - startTime);
   double requestDurationSeconds = duration.count() / double(1000);
 
-  requestEvent ev(requestEventType::FINISH,
+  requestEvent ev(eventType::FINISH,
                   requestId_,
                   url_.getPath(),
                   dst,
@@ -302,21 +270,20 @@ void ConnHandler::onEOM() noexcept {
   }
 }
 
-void ConnHandler::onUpgrade(UpgradeProtocol) noexcept {
+void GETHandler::onUpgrade(UpgradeProtocol) noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Discarding upgrade protocol";
 }
 
-void ConnHandler::onError(const HTTPException& error) noexcept {
-  rcvEOM = true;
+void GETHandler::onError(const HTTPException& error) noexcept {
   LOG(INFO) << "An error occurred: " << error.describe();
 }
 
-void ConnHandler::onEgressPaused() noexcept {
+void GETHandler::onEgressPaused() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Egress paused";
   egressPaused_ = true;
 }
 
-void ConnHandler::onEgressResumed() noexcept {
+void GETHandler::onEgressResumed() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Egress resumed";
   egressPaused_ = false;
   if (inputFile_) {
@@ -324,11 +291,11 @@ void ConnHandler::onEgressResumed() noexcept {
   }
 }
 
-void ConnHandler::onPushedTransaction(
+void GETHandler::onPushedTransaction(
     proxygen::HTTPTransaction* pushedTxn) noexcept {
 }
 
-const string& ConnHandler::getServerName() const {
+const string& GETHandler::getServerName() const {
   const string& res = request_.getHeaders().getSingleOrEmpty(HTTP_HEADER_HOST);
   if (res.empty()) {
     return url_.getHost();
@@ -336,7 +303,7 @@ const string& ConnHandler::getServerName() const {
   return res;
 }
 
-ConnCallback::ConnCallback(folly::Optional<folly::File>&& outputFile)
+RequestLog::RequestLog(folly::Optional<folly::File>&& outputFile)
     : outputFile_(std::move(outputFile)) {
   std::vector<std::string> row;
   row.push_back("evtstamp");
@@ -352,17 +319,17 @@ ConnCallback::ConnCallback(folly::Optional<folly::File>&& outputFile)
   writeToOutput(outputFile_, folly::join(",", row));
 }
 
-void ConnCallback::handleEvent(const ConnHandler::requestEvent& ev) {
+void RequestLog::handleEvent(const GETHandler::requestEvent& ev) {
   std::vector<std::string> row;
   row.push_back(std::to_string(ev.tstamp_));
   switch (ev.type_) {
-    case ConnHandler::requestEventType::START:
+    case GETHandler::eventType::START:
       row.push_back("REQUEST_START");
       break;
-    case ConnHandler::requestEventType::FINISH:
+    case GETHandler::eventType::FINISH:
       row.push_back("REQUEST_FINISH");
       break;
-    case ConnHandler::requestEventType::NONE:
+    case GETHandler::eventType::NONE:
       abort();
       break;
   }

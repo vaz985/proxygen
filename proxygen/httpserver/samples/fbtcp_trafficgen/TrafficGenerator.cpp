@@ -108,6 +108,7 @@ void TrafficGenerator::start() {
 }
 
 void TrafficGenerator::Client::runRequest(proxygen::URL url) {
+  updateConnections();
   // LOG(INFO) << "[CID " << id_ << "] Request: " << url.getPath();
   TGConnection* currentConnection = nullptr;
   if (idleConnections.empty()) {

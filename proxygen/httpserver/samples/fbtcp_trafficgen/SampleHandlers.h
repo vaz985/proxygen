@@ -645,11 +645,11 @@ class RandBytesGenHandler : public BaseSampleHandler {
 
   std::unique_ptr<folly::IOBuf> randBytes(int len) {
     static folly::ThreadLocal<std::vector<uint8_t>> data;
-    random_bytes_engine rbe;
+    // random_bytes_engine rbe;
     auto previousSize = data->size();
     if (previousSize < size_t(len)) {
       data->resize(len);
-      std::generate(begin(*data) + previousSize, end(*data), std::ref(rbe));
+      // std::generate(begin(*data) + previousSize, end(*data), std::ref(rbe));
     }
     return folly::IOBuf::wrapBuffer(folly::ByteRange(data->data(), len));
   }

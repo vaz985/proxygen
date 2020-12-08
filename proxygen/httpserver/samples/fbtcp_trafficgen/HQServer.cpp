@@ -10,6 +10,7 @@
 
 #include <ostream>
 #include <string>
+#include <sys/stat.h>
 
 #include <boost/algorithm/string.hpp>
 
@@ -49,52 +50,26 @@ using quic::QuicSocket;
 
 static std::atomic<bool> shouldPassHealthChecks{true};
 
+inline bool fileExist(const std::string& name) {
+  struct stat buffer;
+  return (stat (name.c_str(), &buffer) == 0);
+}
+
 HTTPTransactionHandler* Dispatcher::getRequestHandler(HTTPMessage* msg,
                                                       const HQParams& params) {
   DCHECK(msg);
   auto path = msg->getPathAsStringPiece();
-  if (path == "/" || path == "/echo") {
-    return new EchoHandler(params);
-  }
+  // If we have static folder on, we check if the file exists. Otherwise we assume
+  // that the client wants the RandBytesGen
   if (!params.staticRoot.empty()) {
-    return new StaticFileHandler(params);
-  }
-  if (path == "/continue") {
-    return new ContinueHandler(params);
+    auto filePath = folly::to<std::string>(params.staticRoot, "/", path);
+    if (fileExist(filePath)) {
+      return new StaticFileHandler(params);
+    }
   }
   if (path.size() > 1 && path[0] == '/' && std::isdigit(path[1])) {
     return new RandBytesGenHandler(params);
   }
-  if (path == "/status") {
-    return new HealthCheckHandler(shouldPassHealthChecks, params);
-  }
-  if (path == "/status_ok") {
-    shouldPassHealthChecks = true;
-    return new HealthCheckHandler(true, params);
-  }
-  if (path == "/status_fail") {
-    shouldPassHealthChecks = false;
-    return new HealthCheckHandler(true, params);
-  }
-  if (path == "/wait" || path == "/release") {
-    return new WaitReleaseHandler(
-        folly::EventBaseManager::get()->getEventBase(), params);
-  }
-  if (path == "/pr_cat") {
-    return new PrCatHandler(params);
-  }
-  if (boost::algorithm::starts_with(path, "/push")) {
-    return new ServerPushHandler(params);
-  }
-
-  if (path == "/pr_scripted_skip") {
-    return new PrSkipHandler(params);
-  }
-
-  if (path == "/pr_scripted_reject") {
-    return new PrRejectHandler(params);
-  }
-
   return new DummyHandler(params);
 }
 

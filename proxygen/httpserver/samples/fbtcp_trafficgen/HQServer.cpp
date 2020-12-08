@@ -217,7 +217,7 @@ void HQServer::setTlsSettings(const HQParams& params) {
 
 void HQServer::start() {
   server_->start(params_.localAddress.value(),
-                 std::thread::hardware_concurrency());
+                 params_.numWorkers);
 }
 
 void HQServer::run() {
@@ -320,7 +320,7 @@ std::thread H2Server::run(
 
 void startServer(const HQParams& params) {
   // Run H2 server in a separate thread
-  auto h2server = H2Server::run(params, Dispatcher::getRequestHandler);
+  // auto h2server = H2Server::run(params, Dispatcher::getRequestHandler);
   // Run HQ server
   HQServer server(params, Dispatcher::getRequestHandler);
   server.start();
@@ -328,7 +328,7 @@ void startServer(const HQParams& params) {
   server.getAddress();
   // Start HQ sever event loop
   server.run();
-  h2server.join();
+  // h2server.join();
 }
 
 // Observer

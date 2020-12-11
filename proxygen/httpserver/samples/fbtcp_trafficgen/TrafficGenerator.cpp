@@ -30,6 +30,48 @@ using TimePoint = std::chrono::time_point<Clock>;
 
 namespace quic { namespace samples {
 
+RequestLog::RequestLog(folly::Optional<folly::File>&& outputFile)
+    : outputFile_(std::move(outputFile)) {
+  std::vector<std::string> row;
+  row.push_back("evtstamp");
+  row.push_back("type");
+  row.push_back("request_url");
+  row.push_back("request_id");
+  row.push_back("dst");
+  row.push_back("src");
+  row.push_back("duration");
+  row.push_back("body_length");
+  row.push_back("Bps");
+  const std::lock_guard<std::mutex> lock(writeMutex);
+  writeToOutput(outputFile_, folly::join(",", row));
+}
+
+void RequestLog::handleEvent(const GETHandler::requestEvent& ev) {
+  std::vector<std::string> row;
+  row.push_back(std::to_string(ev.tstamp_));
+  switch (ev.type_) {
+    case GETHandler::eventType::START:
+      row.push_back("REQUEST_START");
+      break;
+    case GETHandler::eventType::FINISH:
+      row.push_back("REQUEST_FINISH");
+      break;
+    case GETHandler::eventType::NONE:
+      abort();
+      break;
+  }
+  row.push_back(ev.requestUrl_);
+
+  row.push_back(std::to_string(ev.requestId_));
+  row.push_back(ev.dst_);
+  row.push_back(ev.src_);
+
+  row.push_back(std::to_string(ev.requestDurationSeconds_));
+  row.push_back(std::to_string(ev.bodyLength_));
+  row.push_back(std::to_string(ev.bytesPerSecond_));
+  writeToOutput(outputFile_, folly::join(",", row));
+}
+
 void TrafficGenerator::mainLoop() {
   TimePoint startTime = Clock::now();
   TimePoint endTime = startTime + std::chrono::seconds(params_.duration);
@@ -42,19 +84,22 @@ void TrafficGenerator::mainLoop() {
       break;
     }
 
-    // LOG(INFO) << "LOOP: " << loopNum++;
+    // LOG(INFO) << "Event num: " << loopNum++;
 
     for (auto& client : runningClients) {
       auto topElement = requestPQueue.top();
+      proxygen::URL& topURL = topElement.url_;
+
       std::this_thread::sleep_until(topElement.nextEvent);
 
+      // TODO: Check closure
       std::function<void()> requestRunner = [&]() {
-        client->runRequest(topElement.url_);
+        client->runRequest(topURL);
       };
       client->getEventBase()->runInEventBaseThread(std::move(requestRunner));
-      
-      topElement.updateEvent();
+
       requestPQueue.pop();
+      topElement.updateEvent();
       requestPQueue.push(topElement);
     }
   }
@@ -86,12 +131,32 @@ void TrafficGenerator::start() {
     requestPQueue.emplace(name, rate);
   }
 
+  if (!params_.clientLogs.empty()) {
+    folly::Optional<folly::File> exportFile;
+
+    const auto path = params_.clientLogs + "/requestLog";
+    auto fileExpect = folly::File::makeFile(path, O_WRONLY | O_TRUNC | O_CREAT);
+    if (fileExpect.hasError()) {
+      LOG(FATAL)
+          << folly::sformat("Unable to open file {} for export, error = {}",
+                            path,
+                            folly::exceptionStr(fileExpect.error()));
+    } else {
+      LOG(ERROR) << folly::sformat("Opened file {} for export", path);
+      exportFile = std::move(fileExpect.value());
+    }
+    requestLog = std::make_shared<RequestLog>(std::move(exportFile));
+  }
+
   LOG(INFO) << "Duration: " << params_.duration;
   LOG(INFO) << "MaxConcurrent: " << params_.maxConcurrent;
 
   for (uint32_t cid = 0; cid < numClients; cid++) {
-    auto client =
-        std::make_shared<Client>(cid, evbs[cid % numWorkers], params_);
+    auto client = std::make_shared<Client>(
+        cid, evbs[cid % numWorkers], params_);
+    if (requestLog) {
+      client->setRequestLog(requestLog.value());
+    }
     runningClients.push_back(std::move(client));
   }
   CHECK(!runningClients.empty());
@@ -107,18 +172,27 @@ void TrafficGenerator::start() {
   LOG(INFO) << "evb end";
 }
 
-void TrafficGenerator::Client::runRequest(proxygen::URL url) {
+void TrafficGenerator::Client::runRequest(proxygen::URL& url) {
+  evb_->checkIsInEventBaseThread();
   updateConnections();
-  // LOG(INFO) << "[CID " << id_ << "] Request: " << url.getPath();
   TGConnection* currentConnection = nullptr;
+  // LOG(INFO) << "[CID " << id_ << "] Request: " << url.getPath()
+  //           << " | I/R: " << idleConnections.size() << "/"
+  //           << runningConnections.size();
   if (idleConnections.empty()) {
     if (runningConnections.size() >= params_.maxConcurrent) {
       // LOG(INFO) << "Skipping request, too many running connections";
       return;
     }
     auto newConnection = std::make_unique<TGConnection>(params_, evb_);
+    if (requestLog_) {
+      newConnection->setCallback(requestLog_.value());
+    }
     newConnection->start();
+
     createdConnections.push_back(std::move(newConnection));
+    runningConnections[nextAvailableClientNum++] =
+        createdConnections.back().get();
     currentConnection = createdConnections.back().get();
   } else {
     currentConnection = runningConnections[idleConnections.back()];
@@ -126,7 +200,8 @@ void TrafficGenerator::Client::runRequest(proxygen::URL url) {
   CHECK(currentConnection != nullptr);
   currentConnection->sendRequest(url);
 
-  bool reuseConnection = (reuseDistrib(gen) > params_.reuseProb) ? true : false;
+  bool reuseConnection =
+      (reuseDistrib(gen) <= params_.reuseProb) ? true : false;
   if (!reuseConnection) {
     currentConnection->startClosing();
   }

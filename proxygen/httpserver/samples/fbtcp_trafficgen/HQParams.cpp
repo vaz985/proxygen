@@ -26,7 +26,9 @@ DEFINE_string(event_logs, "", "");
 
 // FBTCP TrafficGenerator Settings
 DEFINE_uint32(num_clients, 0, "Number of clients created to generate traffic");
-DEFINE_uint32(num_workers, std::thread::hardware_concurrency(), "Number of EventBase's handling requests");
+DEFINE_uint32(num_workers,
+              std::thread::hardware_concurrency() / 2,
+              "Number of EventBase's handling requests");
 DEFINE_uint32(reuse_prob, 100, "Connection reuse probability [0, 100]%");
 DEFINE_string(traffic_path, "", "JSON traffic profile path");
 DEFINE_string(client_logs, "/tmp/log", "Path to store client logs");

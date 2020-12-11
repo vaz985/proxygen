@@ -55,7 +55,7 @@ struct HQParams {
 
   // FBTCP TrafficGenerator
   uint32_t numClients;
-  uint32_t numWorkers{std::thread::hardware_concurrency()};
+  uint32_t numWorkers{std::thread::hardware_concurrency() / 2};
 
   std::string clientLogs;
   std::string eventLogs;

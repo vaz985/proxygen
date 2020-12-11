@@ -169,17 +169,17 @@ void GETHandler::sendRequest(HTTPTransaction* txn) {
   txn_->sendHeadersWithEOM(request_);
 
   startTime = Clock::now();
-
-  const folly::SocketAddress peerAddress = txn_->getPeerAddress();
-  const folly::SocketAddress localAddress = txn_->getLocalAddress();
-
-  std::string dst =
-      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
-  std::string src = localAddress.getAddressStr() + ":" +
-                    std::to_string(localAddress.getPort());
-
-  requestEvent ev(eventType::START, requestId_, url_.getPath(), dst, src);
   if (cb_) {
+
+    const folly::SocketAddress peerAddress = txn_->getPeerAddress();
+    const folly::SocketAddress localAddress = txn_->getLocalAddress();
+
+    std::string dst = peerAddress.getAddressStr() + ":" +
+                      std::to_string(peerAddress.getPort());
+    std::string src = localAddress.getAddressStr() + ":" +
+                      std::to_string(localAddress.getPort());
+
+    requestEvent ev(eventType::START, requestId_, url_.getPath(), dst, src);
     cb_->get()->handleEvent(ev);
   }
 }
@@ -242,30 +242,28 @@ void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
 
 void GETHandler::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
-
   endTime = Clock::now();
-
-  folly::SocketAddress localAddress = txn_->getLocalAddress();
-  folly::SocketAddress peerAddress = txn_->getPeerAddress();
-
-  std::string dst =
-      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
-  std::string src = localAddress.getAddressStr() + ":" +
-                    std::to_string(localAddress.getPort());
-
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-      endTime - startTime);
-  double requestDurationSeconds = duration.count() / double(1000);
-
-  requestEvent ev(eventType::FINISH,
-                  requestId_,
-                  url_.getPath(),
-                  dst,
-                  src,
-                  requestDurationSeconds,
-                  bodyLength,
-                  double(bodyLength) / requestDurationSeconds);
   if (cb_) {
+    folly::SocketAddress localAddress = txn_->getLocalAddress();
+    folly::SocketAddress peerAddress = txn_->getPeerAddress();
+
+    std::string dst = peerAddress.getAddressStr() + ":" +
+                      std::to_string(peerAddress.getPort());
+    std::string src = localAddress.getAddressStr() + ":" +
+                      std::to_string(localAddress.getPort());
+
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        endTime - startTime);
+    double requestDurationSeconds = duration.count() / double(1000);
+
+    requestEvent ev(eventType::FINISH,
+                    requestId_,
+                    url_.getPath(),
+                    dst,
+                    src,
+                    requestDurationSeconds,
+                    bodyLength,
+                    bodyLength / requestDurationSeconds);
     cb_->get()->handleEvent(ev);
   }
 }
@@ -301,48 +299,6 @@ const string& GETHandler::getServerName() const {
     return url_.getHost();
   }
   return res;
-}
-
-RequestLog::RequestLog(folly::Optional<folly::File>&& outputFile)
-    : outputFile_(std::move(outputFile)) {
-  std::vector<std::string> row;
-  row.push_back("evtstamp");
-  row.push_back("type");
-  row.push_back("request_url");
-  row.push_back("request_id");
-  row.push_back("dst");
-  row.push_back("src");
-  row.push_back("duration");
-  row.push_back("body_length");
-  row.push_back("Bps");
-  const std::lock_guard<std::mutex> lock(writeMutex);
-  writeToOutput(outputFile_, folly::join(",", row));
-}
-
-void RequestLog::handleEvent(const GETHandler::requestEvent& ev) {
-  std::vector<std::string> row;
-  row.push_back(std::to_string(ev.tstamp_));
-  switch (ev.type_) {
-    case GETHandler::eventType::START:
-      row.push_back("REQUEST_START");
-      break;
-    case GETHandler::eventType::FINISH:
-      row.push_back("REQUEST_FINISH");
-      break;
-    case GETHandler::eventType::NONE:
-      abort();
-      break;
-  }
-  row.push_back(ev.requestUrl_);
-
-  row.push_back(std::to_string(ev.requestId_));
-  row.push_back(ev.dst_);
-  row.push_back(ev.src_);
-
-  row.push_back(std::to_string(ev.requestDurationSeconds_));
-  row.push_back(std::to_string(ev.bodyLength_));
-  row.push_back(std::to_string(ev.bytesPerSecond_));
-  writeToOutput(outputFile_, folly::join(",", row));
 }
 
 }} // namespace quic::samples

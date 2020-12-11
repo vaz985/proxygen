@@ -73,7 +73,8 @@ void TGConnection::start() {
 
 void TGConnection::connectSuccess() {
   connState_ = ConnectionState::CONNECT_SUCCESS;
-  // LOG(INFO) << "Connection successful on " << session_->getLocalAddress().describe();
+  // LOG(INFO) << "Connection successful on " <<
+  // session_->getLocalAddress().describe();
   if (nextRequest) {
     nextRequest.value()();
     nextRequest.clear();
@@ -95,8 +96,6 @@ void TGConnection::connectError(
   // LOG(ERROR) << "TGConnection failed to connect, error="
   //            << toString(error.first) << ", msg=" << error.second;
 }
-
-static std::function<void()> selfSchedulingRequestRunner;
 
 proxygen::HTTPTransaction* FOLLY_NULLABLE
 TGConnection::sendRequest(const proxygen::URL& requestUrl) {

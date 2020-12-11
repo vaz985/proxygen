@@ -20,6 +20,17 @@
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/TGConnection.h>
 
 namespace quic { namespace samples {
+
+class RequestLog : public GETHandler::RequestLog {
+ public:
+  RequestLog(folly::Optional<folly::File>&& outputFile);
+  void handleEvent(const GETHandler::requestEvent& ev) override;
+
+ private:
+  folly::Optional<folly::File> outputFile_;
+  std::mutex writeMutex;
+};
+
 class TrafficGenerator {
 
   // Handles the creation of connections and requests
@@ -29,8 +40,9 @@ class TrafficGenerator {
         : id_(id), evb_(evb), params_(params), reuseDistrib(0, 100) {
 
       uint32_t gid = params_.clientGroup;
-      std::string localAddress = "10." + std::to_string((16 * gid) + (id / 256)) + "." +
-                    std::to_string(id % 256) + ".2";
+      std::string localAddress = "10." +
+                                 std::to_string((16 * gid) + (id / 256)) + "." +
+                                 std::to_string(id % 256) + ".2";
       params_.localAddress = folly::SocketAddress(localAddress, 0, true);
     }
 
@@ -42,8 +54,12 @@ class TrafficGenerator {
       return evb_;
     }
 
+    void setRequestLog(std::shared_ptr<RequestLog> requestLog) {
+      requestLog_ = requestLog;
+    }
+
     // Execute GET request on choosen connection
-    void runRequest(proxygen::URL url);
+    void runRequest(proxygen::URL& url);
 
    private:
     // Check runningConnections for status
@@ -55,10 +71,12 @@ class TrafficGenerator {
 
     std::vector<std::unique_ptr<TGConnection>> createdConnections;
     uint32_t nextConnectionNum = 0;
+    uint32_t nextAvailableClientNum = 0;
     std::map<uint32_t, TGConnection*> runningConnections;
     std::vector<uint32_t> idleConnections;
 
     std::uniform_int_distribution<uint32_t> reuseDistrib;
+    folly::Optional<std::shared_ptr<RequestLog>> requestLog_;
   };
 
   // Struct helping with generating requests
@@ -73,7 +91,7 @@ class TrafficGenerator {
 
     TrafficComponent(std::string name, double rate)
         : name_(name), rate_(rate), distrib(rate) {
-      url_ = proxygen::URL(name_);
+      url_ = proxygen::URL(name_, true);
       nextEvent = Clock::now();
       updateEvent();
     }
@@ -101,7 +119,6 @@ class TrafficGenerator {
   HQParams& params_;
   uint32_t numWorkers{0};
   uint32_t numClients{0};
-  uint32_t nextAvaliableClientNum = 0;
 
   std::vector<std::unique_ptr<folly::ScopedEventBaseThread>> workerEvbs_;
   std::vector<folly::EventBase*> evbs;
@@ -113,6 +130,8 @@ class TrafficGenerator {
   // TODO: We should maintain how many connections each EventBase is handling
   // and choose the least used when spawning a new connection.
   std::vector<std::shared_ptr<Client>> runningClients;
+
+  folly::Optional<std::shared_ptr<RequestLog>> requestLog;
 };
 
 }} // namespace quic::samples

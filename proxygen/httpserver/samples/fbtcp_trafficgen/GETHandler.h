@@ -173,15 +173,5 @@ class GETHandler
   folly::Optional<std::function<void()>> nextFunc_;
 };
 
-class RequestLog : public GETHandler::RequestLog {
- public:
-  RequestLog(folly::Optional<folly::File>&& outputFile);
-  void handleEvent(const GETHandler::requestEvent& ev) override;
-
- private:
-  folly::Optional<folly::File> outputFile_;
-  std::mutex writeMutex;
-};
-
 } // namespace samples
 } // namespace quic

@@ -52,15 +52,15 @@ static std::atomic<bool> shouldPassHealthChecks{true};
 
 inline bool fileExist(const std::string& name) {
   struct stat buffer;
-  return (stat (name.c_str(), &buffer) == 0);
+  return (stat(name.c_str(), &buffer) == 0);
 }
 
 HTTPTransactionHandler* Dispatcher::getRequestHandler(HTTPMessage* msg,
                                                       const HQParams& params) {
   DCHECK(msg);
   auto path = msg->getPathAsStringPiece();
-  // If we have static folder on, we check if the file exists. Otherwise we assume
-  // that the client wants the RandBytesGen
+  // If we have static folder on, we check if the file exists. Otherwise we
+  // assume that the client wants the RandBytesGen
   if (!params.staticRoot.empty()) {
     auto filePath = folly::to<std::string>(params.staticRoot, "/", path);
     if (fileExist(filePath)) {
@@ -216,8 +216,7 @@ void HQServer::setTlsSettings(const HQParams& params) {
 }
 
 void HQServer::start() {
-  server_->start(params_.localAddress.value(),
-                 params_.numWorkers);
+  server_->start(params_.localAddress.value(), params_.numWorkers);
 }
 
 void HQServer::run() {

@@ -59,7 +59,7 @@ class TrafficGenerator {
     }
 
     // Execute GET request on choosen connection
-    void runRequest(proxygen::URL& url);
+    void runRequest(proxygen::URL url);
 
    private:
     // Check runningConnections for status

@@ -84,10 +84,13 @@ void TrafficGenerator::mainLoop() {
 
     auto nextRequest = requestPQueue.top();
     std::this_thread::sleep_until(nextRequest.nextEvent);
-    std::function<void()> requestFn = [&]() {
-      runningClients[nextRequest.cid_]->runRequest(nextRequest.url_);
+
+    uint32_t clientNum = nextRequest.cid_;
+    proxygen::URL currentUrl = nextRequest.url_;
+    std::function<void()> requestFn = [&, clientNum, currentUrl]() {
+      runningClients[clientNum]->runRequest(currentUrl);
     };
-    runningClients[nextRequest.cid_]->getEventBase()->runInEventBaseThread(
+    runningClients[clientNum]->getEventBase()->runInEventBaseThread(
         std::move(requestFn));
 
     nextRequest.updateEvent();
@@ -131,6 +134,7 @@ void TrafficGenerator::start() {
     folly::Optional<folly::File> exportFile;
 
     const auto path = params_.clientLogs + "/requestLog";
+    LOG(INFO) << "Logging request to " << path;
     auto fileExpect = folly::File::makeFile(path, O_WRONLY | O_TRUNC | O_CREAT);
     if (fileExpect.hasError()) {
       LOG(FATAL)
@@ -168,7 +172,7 @@ void TrafficGenerator::start() {
   LOG(INFO) << "evb end";
 }
 
-void TrafficGenerator::Client::runRequest(proxygen::URL& url) {
+void TrafficGenerator::Client::runRequest(proxygen::URL url) {
   evb_->checkIsInEventBaseThread();
   updateConnections();
   TGConnection* currentConnection = nullptr;

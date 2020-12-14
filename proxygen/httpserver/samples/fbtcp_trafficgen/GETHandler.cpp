@@ -30,7 +30,7 @@ namespace quic { namespace samples {
 
 GETHandler::GETHandler(EventBase* evb,
                        HTTPMethod httpMethod,
-                       const proxygen::URL& url,
+                       const proxygen::URL url,
                        const proxygen::URL* proxy,
                        const HTTPHeaders& headers,
                        const string& inputFilename,

@@ -30,7 +30,7 @@ namespace quic { namespace samples {
 
 GETHandler::GETHandler(EventBase* evb,
                        HTTPMethod httpMethod,
-                       const proxygen::URL url,
+                       std::string requestName,
                        const proxygen::URL* proxy,
                        const HTTPHeaders& headers,
                        const string& inputFilename,
@@ -39,7 +39,7 @@ GETHandler::GETHandler(EventBase* evb,
                        unsigned short httpMinor)
     : evb_(evb),
       httpMethod_(httpMethod),
-      url_(url),
+      requestName_(requestName),
       inputFilename_(inputFilename),
       h2c_(h2c),
       httpMajor_(httpMajor),
@@ -47,7 +47,7 @@ GETHandler::GETHandler(EventBase* evb,
   if (proxy != nullptr) {
     proxy_ = std::make_unique<URL>(proxy->getUrl());
   }
-
+  url_ = proxygen::URL(requestName_, true);
   outputStream_ = std::make_unique<std::ostream>(std::cout.rdbuf());
   headers.forEach([this](const string& header, const string& val) {
     request_.getHeaders().add(header, val);

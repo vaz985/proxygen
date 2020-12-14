@@ -98,7 +98,7 @@ void TGConnection::connectError(
 }
 
 proxygen::HTTPTransaction* FOLLY_NULLABLE
-TGConnection::sendRequest(const proxygen::URL& requestUrl) {
+TGConnection::sendRequest(std::string requestName) {
   if (connState_ == ConnectionState::DONE) {
     // LOG(INFO) << "Stopped request, DONE";
     return nullptr;
@@ -106,27 +106,29 @@ TGConnection::sendRequest(const proxygen::URL& requestUrl) {
   // We set the request to run when the connection is established
   if (connState_ == ConnectionState::NONE) {
     // LOG(INFO) << "Request after connect, NONE";
-    nextURL = requestUrl;
+    nextURL = requestName;
     nextRequest = [&]() { sendRequest(nextURL); };
     return nullptr;
   }
-  // if (!createdRequests.empty() && !createdRequests.back()->ended()) {
-  //   // LOG(INFO) << "Stopped request, last stream still running";
-  //   return nullptr;
-  // }
-  // if (!quicClient_->good()) {
-  //   // LOG(INFO) << "Stopped request, quicClient not good";
-  //   return nullptr;
-  // }
-  // if (quicClient_->error()) {
-  //   // LOG(INFO) << "Stopped request, quicClient error";
-  //   return nullptr;
-  // }
+  if (!createdRequests.empty() && !createdRequests.back()->requestEnded()) {
+    // LOG(INFO) << "Stopped request, last stream still running";
+    return nullptr;
+  }
+  if (!quicClient_->good()) {
+    connState_ = ConnectionState::DONE;
+    // LOG(INFO) << "Stopped request, quicClient not good";
+    return nullptr;
+  }
+  if (quicClient_->error()) {
+    connState_ = ConnectionState::DONE;
+    // LOG(INFO) << "Stopped request, quicClient error";
+    return nullptr;
+  }
   // LOG(INFO) << "Running request " << requestUrl.getPath();
   std::unique_ptr<GETHandler> request =
       std::make_unique<GETHandler>(evb_,
                                    params_.httpMethod,
-                                   requestUrl,
+                                   requestName,
                                    nullptr,
                                    params_.httpHeaders,
                                    params_.httpBody,

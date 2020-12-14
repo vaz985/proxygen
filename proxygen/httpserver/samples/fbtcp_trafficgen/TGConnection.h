@@ -62,7 +62,7 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
                              createdRequests.back()->requestEnded()));
   }
 
-  proxygen::HTTPTransaction* sendRequest(const proxygen::URL& requestUrl);
+  proxygen::HTTPTransaction* sendRequest(std::string requestName);
 
   void setCallback(const std::shared_ptr<GETHandler::RequestLog> cbHandler) {
     cb_ = cbHandler;
@@ -103,7 +103,7 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
 
   folly::Optional<std::shared_ptr<GETHandler::RequestLog>> cb_;
 
-  proxygen::URL nextURL;
+  std::string nextURL;
   folly::Optional<std::function<void()>> nextRequest;
 };
 

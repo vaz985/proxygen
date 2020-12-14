@@ -83,12 +83,12 @@ void TrafficGenerator::mainLoop() {
     }
 
     auto nextRequest = requestPQueue.top();
-    std::this_thread::sleep_until(nextRequest.nextEvent);
+    std::this_thread::sleep_until(nextRequest.nextEvent_);
 
     uint32_t clientNum = nextRequest.cid_;
-    proxygen::URL currentUrl = nextRequest.url_;
-    std::function<void()> requestFn = [&, clientNum, currentUrl]() {
-      runningClients[clientNum]->runRequest(currentUrl);
+    std::string requestName = nextRequest.name_;
+    std::function<void()> requestFn = [&, clientNum, requestName]() {
+      runningClients[clientNum]->runRequest(requestName);
     };
     runningClients[clientNum]->getEventBase()->runInEventBaseThread(
         std::move(requestFn));
@@ -172,7 +172,7 @@ void TrafficGenerator::start() {
   LOG(INFO) << "evb end";
 }
 
-void TrafficGenerator::Client::runRequest(proxygen::URL url) {
+void TrafficGenerator::Client::runRequest(std::string requestName) {
   evb_->checkIsInEventBaseThread();
   updateConnections();
   TGConnection* currentConnection = nullptr;
@@ -198,7 +198,7 @@ void TrafficGenerator::Client::runRequest(proxygen::URL url) {
     currentConnection = runningConnections[idleConnections.back()];
   }
   CHECK(currentConnection != nullptr);
-  currentConnection->sendRequest(url);
+  currentConnection->sendRequest(requestName);
 
   bool reuseConnection =
       (reuseDistrib(gen) <= params_.reuseProb) ? true : false;

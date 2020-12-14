@@ -59,7 +59,7 @@ class TrafficGenerator {
     }
 
     // Execute GET request on choosen connection
-    void runRequest(proxygen::URL url);
+    void runRequest(std::string requestName);
 
    private:
     // Check runningConnections for status
@@ -83,26 +83,24 @@ class TrafficGenerator {
   // TODO: Make a enum for the gen type
   struct TrafficComponent {
     uint32_t cid_;
-    TimePoint nextEvent;
+    TimePoint nextEvent_;
     std::string name_;
-    proxygen::URL url_;
 
     double rate_;
     std::exponential_distribution<> distrib;
 
     TrafficComponent(uint32_t cid, std::string name, double rate)
         : cid_(cid), name_(name), rate_(rate), distrib(rate) {
-      url_ = proxygen::URL(name_, true);
-      nextEvent = Clock::now();
+      nextEvent_ = Clock::now();
       updateEvent();
     }
 
     bool operator<(const TrafficComponent& rhs) const {
-      return nextEvent > rhs.nextEvent;
+      return nextEvent_ > rhs.nextEvent_;
     }
 
     void updateEvent() {
-      nextEvent += std::chrono::milliseconds(uint32_t(1000 * distrib(gen)));
+      nextEvent_ += std::chrono::milliseconds(uint32_t(1000 * distrib(gen)));
     }
   };
 

@@ -75,7 +75,7 @@ class GETHandler
   GETHandler(folly::EventBase* evb,
              // std::shared_ptr<quic::QuicClientTransport>& sock,
              proxygen::HTTPMethod httpMethod,
-             const proxygen::URL url,
+             std::string requestName,
              const proxygen::URL* proxy,
              const proxygen::HTTPHeaders& headers,
              const std::string& inputFilename,
@@ -149,7 +149,8 @@ class GETHandler
   proxygen::HTTPTransaction* txn_{nullptr};
   folly::EventBase* evb_{nullptr};
   proxygen::HTTPMethod httpMethod_;
-  const proxygen::URL url_;
+  std::string requestName_;
+  proxygen::URL url_;
   std::unique_ptr<proxygen::URL> proxy_;
   proxygen::HTTPMessage request_;
   const std::string inputFilename_;

@@ -76,33 +76,26 @@ void TrafficGenerator::mainLoop() {
   TimePoint startTime = Clock::now();
   TimePoint endTime = startTime + std::chrono::seconds(params_.duration);
 
-  uint64_t loopNum = 0;
   while (true) {
     TimePoint currentTime = Clock::now();
     if (currentTime >= endTime) {
-      // Stop and wait for clients end
       break;
     }
 
-    // LOG(INFO) << "Event num: " << loopNum++;
+    auto nextRequest = requestPQueue.top();
+    std::this_thread::sleep_until(nextRequest.nextEvent);
+    std::function<void()> requestFn = [&]() {
+      runningClients[nextRequest.cid_]->runRequest(nextRequest.url_);
+    };
+    runningClients[nextRequest.cid_]->getEventBase()->runInEventBaseThread(
+        std::move(requestFn));
 
-    for (auto& client : runningClients) {
-      auto topElement = requestPQueue.top();
-      proxygen::URL& topURL = topElement.url_;
-
-      std::this_thread::sleep_until(topElement.nextEvent);
-
-      // TODO: Check closure
-      std::function<void()> requestRunner = [&]() {
-        client->runRequest(topURL);
-      };
-      client->getEventBase()->runInEventBaseThread(std::move(requestRunner));
-
-      requestPQueue.pop();
-      topElement.updateEvent();
-      requestPQueue.push(topElement);
-    }
+    nextRequest.updateEvent();
+    requestPQueue.pop();
+    requestPQueue.push(nextRequest);
   }
+
+  // setup requests
 }
 
 void TrafficGenerator::start() {
@@ -125,10 +118,13 @@ void TrafficGenerator::start() {
 
   params_.duration = trafficCfg["duration"].asInt();
   params_.maxConcurrent = trafficCfg["max_concurrent_connections"].asInt();
+
   for (auto it : trafficCfg["cross_traffic_components"]) {
     std::string name = "/" + it["name"].asString();
-    double rate = it["rate"].asDouble() * numClients;
-    requestPQueue.emplace(name, rate);
+    double rate = it["rate"].asDouble();
+    for (uint32_t clientNum = 0; clientNum < numClients; ++clientNum) {
+      requestPQueue.emplace(clientNum, name, rate);
+    }
   }
 
   if (!params_.clientLogs.empty()) {
@@ -152,8 +148,8 @@ void TrafficGenerator::start() {
   LOG(INFO) << "MaxConcurrent: " << params_.maxConcurrent;
 
   for (uint32_t cid = 0; cid < numClients; cid++) {
-    auto client = std::make_shared<Client>(
-        cid, evbs[cid % numWorkers], params_);
+    auto client =
+        std::make_shared<Client>(cid, evbs[cid % numWorkers], params_);
     if (requestLog) {
       client->setRequestLog(requestLog.value());
     }

@@ -82,6 +82,7 @@ class TrafficGenerator {
   // Struct helping with generating requests
   // TODO: Make a enum for the gen type
   struct TrafficComponent {
+    uint32_t cid_;
     TimePoint nextEvent;
     std::string name_;
     proxygen::URL url_;
@@ -89,8 +90,8 @@ class TrafficGenerator {
     double rate_;
     std::exponential_distribution<> distrib;
 
-    TrafficComponent(std::string name, double rate)
-        : name_(name), rate_(rate), distrib(rate) {
+    TrafficComponent(uint32_t cid, std::string name, double rate)
+        : cid_(cid), name_(name), rate_(rate), distrib(rate) {
       url_ = proxygen::URL(name_, true);
       nextEvent = Clock::now();
       updateEvent();

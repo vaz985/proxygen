@@ -176,15 +176,16 @@ void TGConnection::initializeQuicClient() {
 }
 
 void TGConnection::startClosing() {
+  connState_ = ConnectionState::DONE;
   if (!createdRequests.empty() && !createdRequests.back()->requestEnded()) {
     createdRequests.back()->setNextFunc([&]() { close(); });
-  } else if (connState_ != ConnectionState::NONE) {
+  } else if (connected()) {
     close();
   }
-  connState_ = ConnectionState::DONE;
 }
 
 void TGConnection::close() {
+  // QuicTransportBase.cpp:477] close threw exception Cannot encrypt inplace.
   session_->drain();
   session_->closeWhenIdle();
 }

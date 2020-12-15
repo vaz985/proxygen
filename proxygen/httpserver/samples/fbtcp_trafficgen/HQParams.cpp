@@ -23,7 +23,7 @@
 DEFINE_uint32(server_group, 0, "");
 // FBTCP Server Settings
 DEFINE_string(event_logs, "", "");
-
+DEFINE_double(sampling_rate, 0.1, "Percentage of connections observed [0.0, 1.0]");
 // FBTCP TrafficGenerator Settings
 DEFINE_uint32(num_clients, 0, "Number of clients created to generate traffic");
 DEFINE_uint32(num_workers,
@@ -211,12 +211,12 @@ quic::ProbeSizeRaiserType parseRaiserType(uint32_t type) {
 void initializeCommonSettings(HQParams& hqParams) {
   // FBTCP General Settings
   hqParams.serverGroup = FLAGS_server_group;
+  hqParams.numWorkers = FLAGS_num_workers;
   // FBTCP Server Settings
   hqParams.eventLogs = FLAGS_event_logs;
-
+  hqParams.samplingRate = FLAGS_sampling_rate;
   // FBTCP TrafficGenerator Settings
   hqParams.numClients = FLAGS_num_clients;
-  hqParams.numWorkers = FLAGS_num_workers;
   hqParams.reuseProb = FLAGS_reuse_prob;
   hqParams.trafficPath = FLAGS_traffic_path;
   hqParams.clientLogs = FLAGS_client_logs;

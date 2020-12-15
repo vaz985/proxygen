@@ -45,21 +45,22 @@ std::ostream& operator<<(std::ostream& o, const HQMode& m);
  * TODO: Split h2 and h3
  */
 struct HQParams {
-  // FBTCP
+  // FBTCP General Settings
   uint32_t serverGroup;
-  uint32_t clientGroup;
-  uint32_t reuseProb;
-  uint32_t maxConcurrent;
-  std::string trafficPath;
-  uint32_t duration;
-
-  // FBTCP TrafficGenerator
-  uint32_t numClients;
   uint32_t numWorkers{std::thread::hardware_concurrency() / 2};
-
-  std::string clientLogs;
+  // FBTCP Server Settings
   std::string eventLogs;
+  double samplingRate;
+  // FBTCP TrafficGenerator Settings
+  uint32_t numClients;
+  uint32_t reuseProb;
+  std::string trafficPath;
+  std::string clientLogs;
+  uint32_t clientGroup;
 
+  uint32_t maxConcurrent;
+  uint32_t duration;
+  
   // General section
   HQMode mode;
   std::string logprefix;

@@ -152,6 +152,7 @@ class HQServerTransportFactory : public quic::QuicServerTransportFactory {
   // Provider of HTTPTransactionHandler
   HTTPTransactionHandlerProvider httpTransactionHandlerProvider_;
   // Observer
+  std::uniform_real_distribution<> samplingRate_;
   folly::Optional<ConnectionObserver> obs_;
 };
 

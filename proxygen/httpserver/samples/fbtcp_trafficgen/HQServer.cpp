@@ -152,7 +152,8 @@ HQServerTransportFactory::HQServerTransportFactory(
     const HQParams& params,
     const HTTPTransactionHandlerProvider& httpTransactionHandlerProvider)
     : params_(params),
-      httpTransactionHandlerProvider_(httpTransactionHandlerProvider) {
+      httpTransactionHandlerProvider_(httpTransactionHandlerProvider),
+      samplingRate_(0.0, 1.0) {
   if (params_.eventLogs.size() > 0) {
     std::string logPath = params_.eventLogs + "/event.log";
     auto fp =
@@ -175,7 +176,7 @@ QuicServerTransport::Ptr HQServerTransportFactory::make(
       QuicServerTransport::make(evb, std::move(socket), *session, ctx);
 
   // Add sampling rate here?
-  if (obs_) {
+  if (obs_ && (samplingRate_(gen) <= params_.samplingRate)) {
     transport->addInstrumentationObserver(obs_.get_pointer());
   }
 
@@ -227,6 +228,7 @@ const folly::SocketAddress HQServer::getAddress() const {
   server_->waitUntilInitialized();
   const auto& boundAddr = server_->getAddress();
   LOG(INFO) << "HQ server started at: " << boundAddr.describe();
+  LOG(INFO) << "Sampling rate: " << params_.samplingRate * 100 << "%";
   return boundAddr;
 }
 
@@ -371,9 +373,6 @@ void ConnectionObserver::rttSampleGenerated(
   row.push_back(std::to_string(pktRTT.rttSample.count()));
   row.push_back(std::to_string(pktRTT.ackDelay.count()));
 
-  // LOG(INFO) << "ackDelay: " << pktRTT.ackDelay.count();
-  // LOG(INFO) << "minRTT: " << tinfo.mrtt.count();
-
   const std::lock_guard<std::mutex> lock(writeMutex);
   writeToOutput(outputFile_, folly::join(",", row));
 }
@@ -384,7 +383,6 @@ void ConnectionObserver::packetLossDetected(
 
   const folly::SocketAddress peerAddress = sock->getPeerAddress();
   const folly::SocketAddress localAddress = sock->getLocalAddress();
-  // quic::QuicSocket::TransportInfo tinfo = sock->getTransportInfo();
 
   std::string dst =
       peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
@@ -396,8 +394,6 @@ void ConnectionObserver::packetLossDetected(
     lostPackets.emplace_back(
         std::to_string(it.packet.packet.header.getPacketSequenceNum()));
   }
-  // LOG(INFO) << "[SRC: " << src << "][DST: " << dst
-  //           << "] Lost packets: " << folly::join(" ", lostPackets);
 }
 
 }} // namespace quic::samples

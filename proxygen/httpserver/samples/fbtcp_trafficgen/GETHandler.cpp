@@ -213,27 +213,17 @@ void GETHandler::setTransaction(HTTPTransaction*) noexcept {
 }
 
 void GETHandler::detachTransaction() noexcept {
-  ended = true;
-  if (nextFunc_) {
-    auto& fn = nextFunc_.value();
-    fn();
-  }
+  // if (nextFunc_) {
+  //   auto& fn = nextFunc_.value();
+  //   fn();
+  // }
 }
 
 void GETHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
 }
 
 void GETHandler::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {
-  CHECK(outputStream_);
-  if (chain) {
-    const IOBuf* p = chain.get();
-    do {
-      // outputStream_->write((const char*)p->data(), p->length());
-      // outputStream_->flush();
-      bodyLength += p->length();
-      p = p->next();
-    } while (p != chain.get());
-  }
+  bodyLength += chain->computeChainDataLength();
 }
 
 void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
@@ -243,6 +233,7 @@ void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
 void GETHandler::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
   endTime = Clock::now();
+  ended = true;
   if (cb_) {
     folly::SocketAddress localAddress = txn_->getLocalAddress();
     folly::SocketAddress peerAddress = txn_->getPeerAddress();

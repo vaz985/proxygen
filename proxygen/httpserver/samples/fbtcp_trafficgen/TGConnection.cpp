@@ -100,12 +100,13 @@ void TGConnection::connectError(
 proxygen::HTTPTransaction* FOLLY_NULLABLE
 TGConnection::sendRequest(std::string requestName) {
   if (connState_ == ConnectionState::DONE) {
-    // LOG(INFO) << "Stopped request, DONE";
+    VLOG(1) << "Stopped request, DONE";
     return nullptr;
   }
   // We set the request to run when the connection is established
   if (connState_ == ConnectionState::NONE) {
-    // LOG(INFO) << "Request after connect, NONE";
+    VLOG(1) << "Request after connect, queuing first request and now the "
+               "connection is pending";
     nextURL = requestName;
     nextRequest = [&]() { sendRequest(nextURL); };
     return nullptr;
@@ -179,17 +180,13 @@ void TGConnection::initializeQuicClient() {
 
 void TGConnection::startClosing() {
   connState_ = ConnectionState::DONE;
-  if (!createdRequests.empty() && !createdRequests.back()->requestEnded()) {
-    createdRequests.back()->setNextFunc([&]() { close(); });
-  } else if (connected()) {
-    close();
-  }
+  close();
 }
 
 void TGConnection::close() {
   // QuicTransportBase.cpp:477] close threw exception Cannot encrypt inplace.
+  // session_->describe(LOG(INFO) << "Close: ");
   session_->drain();
-  session_->closeWhenIdle();
 }
 
 }} // namespace quic::samples

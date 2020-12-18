@@ -50,10 +50,15 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
            connState_ == ConnectionState::REPLAY_SAFE;
   }
 
+  bool pending() {
+    return nextRequest.hasValue();
+  }
+
   bool isIdle() {
-    return connected() && (createdRequests.empty() ||
-                           (!createdRequests.empty() &&
-                            createdRequests.back()->requestEnded()));
+    return connected() && !pending() &&
+           (createdRequests.empty() ||
+            (!createdRequests.empty() &&
+             createdRequests.back()->requestEnded()));
   }
 
   bool ended() {

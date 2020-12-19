@@ -181,6 +181,32 @@ if (BUILD_QUIC)
       EXPORT proxygen-exports
       DESTINATION bin
   )
+  add_executable(stress_mvfst
+      samples/stress_mvfst/main.cpp
+      samples/stress_mvfst/StressMvfst.cpp
+      samples/stress_mvfst/FizzContext.cpp
+      samples/stress_mvfst/HQParams.cpp
+      samples/stress_mvfst/TGConnection.cpp
+      samples/stress_mvfst/GETHandler.cpp
+  )
+  target_compile_options(
+      stress_mvfst
+      PRIVATE
+          ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
+  )
+  target_link_libraries(
+      stress_mvfst
+      PUBLIC
+          proxygen
+          proxygencurl
+          mvfst::mvfst_transport
+          mvfst::mvfst_client
+  )
+  install(
+      TARGETS stress_mvfst
+      EXPORT proxygen-exports
+      DESTINATION bin
+  )
 endif()
 
 file(

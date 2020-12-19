@@ -27,9 +27,7 @@ namespace samples {
 static std::uniform_int_distribution<uint32_t> requestIdGen;
 
 // Rename to GETHandler
-class GETHandler
-    : public proxygen::HTTPConnector::Callback
-    , public proxygen::HTTPTransactionHandler {
+class GETHandler : public proxygen::HTTPTransactionHandler {
 
  public:
   enum class eventType { NONE, START, FINISH };
@@ -87,17 +85,6 @@ class GETHandler
 
   static proxygen::HTTPHeaders parseHeaders(const std::string& headersString);
 
-  // initial SSL related structures
-  void initializeSsl(const std::string& caPath,
-                     const std::string& nextProtos,
-                     const std::string& certPath = "",
-                     const std::string& keyPath = "");
-  void sslHandshakeFollowup(proxygen::HTTPUpstreamSession* session) noexcept;
-
-  // HTTPConnector methods
-  void connectSuccess(proxygen::HTTPUpstreamSession* session) override;
-  void connectError(const folly::AsyncSocketException& ex) override;
-
   // HTTPTransactionHandler methods
   void setTransaction(proxygen::HTTPTransaction* txn) noexcept override;
   void detachTransaction() noexcept override;
@@ -111,8 +98,6 @@ class GETHandler
   void onError(const proxygen::HTTPException& error) noexcept override;
   void onEgressPaused() noexcept override;
   void onEgressResumed() noexcept override;
-  void onPushedTransaction(
-      proxygen::HTTPTransaction* /* pushedTxn */) noexcept override;
 
   void sendRequest(proxygen::HTTPTransaction* txn);
 
@@ -137,13 +122,15 @@ class GETHandler
     return ended;
   }
 
+  bool hadAnError() {
+    return error;
+  }
+
   void setCallback(std::shared_ptr<RequestLog> cbHandler) {
     cb_ = cbHandler;
   }
 
  protected:
-  void sendBodyFromFile();
-
   void setupHeaders();
 
   proxygen::HTTPTransaction* txn_{nullptr};
@@ -161,13 +148,11 @@ class GETHandler
   unsigned short httpMajor_;
   unsigned short httpMinor_;
   bool egressPaused_{false};
-  std::unique_ptr<std::ifstream> inputFile_;
-  std::unique_ptr<std::ofstream> outputFile_;
-  std::unique_ptr<std::ostream> outputStream_;
   bool partiallyReliable_{false};
   TimePoint startTime;
   TimePoint endTime;
   bool ended{false};
+  bool error{false};
   uint64_t bodyLength{0};
   folly::Optional<std::shared_ptr<RequestLog>> cb_;
   uint32_t requestId_ = requestIdGen(gen);

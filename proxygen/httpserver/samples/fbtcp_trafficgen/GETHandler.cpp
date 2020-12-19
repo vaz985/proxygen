@@ -48,7 +48,6 @@ GETHandler::GETHandler(EventBase* evb,
     proxy_ = std::make_unique<URL>(proxy->getUrl());
   }
   url_ = proxygen::URL(requestName_, true);
-  outputStream_ = std::make_unique<std::ostream>(std::cout.rdbuf());
   headers.forEach([this](const string& header, const string& val) {
     request_.getHeaders().add(header, val);
   });
@@ -78,58 +77,8 @@ HTTPHeaders GETHandler::parseHeaders(const std::string& headersString) {
   return headers;
 }
 
-void GETHandler::initializeSsl(const string& caPath,
-                               const string& nextProtos,
-                               const string& certPath,
-                               const string& keyPath) {
-  sslContext_ = std::make_shared<folly::SSLContext>();
-  sslContext_->setOptions(SSL_OP_NO_COMPRESSION);
-  sslContext_->setCipherList(folly::ssl::SSLCommonOptions::ciphers());
-  if (!caPath.empty()) {
-    sslContext_->loadTrustedCertificates(caPath.c_str());
-  }
-  if (!certPath.empty() && !keyPath.empty()) {
-    sslContext_->loadCertKeyPairFromFiles(certPath.c_str(), keyPath.c_str());
-  }
-  list<string> nextProtoList;
-  folly::splitTo<string>(
-      ',', nextProtos, std::inserter(nextProtoList, nextProtoList.begin()));
-  sslContext_->setAdvertisedNextProtocols(nextProtoList);
-  h2c_ = false;
-}
-
-void GETHandler::sslHandshakeFollowup(HTTPUpstreamSession* session) noexcept {
-  AsyncSSLSocket* sslSocket =
-      dynamic_cast<AsyncSSLSocket*>(session->getTransport());
-
-  const unsigned char* nextProto = nullptr;
-  unsigned nextProtoLength = 0;
-  sslSocket->getSelectedNextProtocol(&nextProto, &nextProtoLength);
-  if (nextProto) {
-    VLOG(1) << "Client selected next protocol "
-            << string((const char*)nextProto, nextProtoLength);
-  } else {
-    VLOG(1) << "Client did not select a next protocol";
-  }
-
-  // Note: This ssl session can be used by defining a member and setting
-  // something like sslSession_ = sslSocket->getSSLSession() and then
-  // passing it to the connector::connectSSL() method
-}
-
 void GETHandler::setFlowControlSettings(int32_t recvWindow) {
   recvWindow_ = recvWindow;
-}
-
-void GETHandler::connectSuccess(HTTPUpstreamSession* session) {
-
-  if (url_.isSecure()) {
-    sslHandshakeFollowup(session);
-  }
-
-  session->setFlowControl(recvWindow_, recvWindow_, recvWindow_);
-  sendRequest(session->newTransaction(this));
-  session->closeWhenIdle();
 }
 
 void GETHandler::setupHeaders() {
@@ -184,39 +133,11 @@ void GETHandler::sendRequest(HTTPTransaction* txn) {
   }
 }
 
-void GETHandler::sendBodyFromFile() {
-  const uint16_t kReadSize = 4096;
-  CHECK(inputFile_);
-  // Reading from the file by chunks
-  // Important note: It's pretty bad to call a blocking i/o function like
-  // ifstream::read() in an eventloop - but for the sake of this simple
-  // example, we'll do it.
-  // An alternative would be to put this into some folly::AsyncReader
-  // object.
-  while (inputFile_->good() && !egressPaused_) {
-    unique_ptr<IOBuf> buf = IOBuf::createCombined(kReadSize);
-    inputFile_->read((char*)buf->writableData(), kReadSize);
-    buf->append(inputFile_->gcount());
-    txn_->sendBody(move(buf));
-  }
-  if (!egressPaused_) {
-    txn_->sendEOM();
-  }
-}
-
-void GETHandler::connectError(const folly::AsyncSocketException& ex) {
-  LOG(ERROR) << "Coudln't connect to " << url_.getHostAndPort() << ":"
-             << ex.what();
-}
-
 void GETHandler::setTransaction(HTTPTransaction*) noexcept {
 }
 
 void GETHandler::detachTransaction() noexcept {
-  // if (nextFunc_) {
-  //   auto& fn = nextFunc_.value();
-  //   fn();
-  // }
+  ended = true;
 }
 
 void GETHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
@@ -265,6 +186,7 @@ void GETHandler::onUpgrade(UpgradeProtocol) noexcept {
 
 void GETHandler::onError(const HTTPException& error) noexcept {
   LOG(INFO) << "An error occurred: " << error.describe();
+  ended = true;
 }
 
 void GETHandler::onEgressPaused() noexcept {
@@ -275,13 +197,6 @@ void GETHandler::onEgressPaused() noexcept {
 void GETHandler::onEgressResumed() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Egress resumed";
   egressPaused_ = false;
-  if (inputFile_) {
-    sendBodyFromFile();
-  }
-}
-
-void GETHandler::onPushedTransaction(
-    proxygen::HTTPTransaction* pushedTxn) noexcept {
 }
 
 const string& GETHandler::getServerName() const {

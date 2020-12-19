@@ -30,14 +30,6 @@
 
 namespace quic { namespace samples {
 
-// static std::string getTargetAddr(const uint32_t gid) {
-//   // Not safe
-//   char buffer[255];
-//   int n = sprintf(buffer, "10.255.%d.2", gid);
-//   CHECK(n < 10);
-//   return std::string(buffer);
-// }
-
 TGConnection::TGConnection(const HQParams params, folly::EventBase* evb)
     : params_(params), evb_(evb) {
   if (params_.transportSettings.pacingEnabled) {
@@ -48,9 +40,7 @@ TGConnection::TGConnection(const HQParams params, folly::EventBase* evb)
 
 void TGConnection::start() {
   if (connState_ != ConnectionState::NONE) {
-    // LOG(ERROR)
-    //     << "Maybe we are requesting too fast after creating a new
-    //     connection";
+    LOG(ERROR)<< "This cant happen";
     return;
   }
 

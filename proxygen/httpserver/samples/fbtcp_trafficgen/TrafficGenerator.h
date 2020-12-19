@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) Facebook, Inc. and its affiliates.
  * All rights reserved.
@@ -31,53 +32,60 @@ class RequestLog : public GETHandler::RequestLog {
   std::mutex writeMutex;
 };
 
+// Handles the creation of connections and requests
+class Client {
+ public:
+  Client(uint32_t id, folly::EventBase* evb, HQParams params)
+      : id_(id), evb_(evb), params_(params), reuseDistrib(0, 100) {
+
+    uint32_t gid = params_.clientGroup;
+    std::string localAddress = "10." + std::to_string((16 * gid) + (id / 256)) +
+                               "." + std::to_string(id % 256) + ".2";
+    params_.localAddress = folly::SocketAddress(localAddress, 0, true);
+  }
+
+  uint32_t getId() {
+    return id_;
+  }
+
+  folly::EventBase* getEventBase() {
+    return evb_;
+  }
+
+  void setRequestLog(std::shared_ptr<RequestLog> requestLog) {
+    requestLog_ = requestLog;
+  }
+
+  // Execute GET request on choosen connection
+  void runRequest(std::string requestName);
+
+  // Check runningConnections for status
+  void updateConnections();
+ 
+ private:
+
+  uint32_t id_;
+  folly::EventBase* evb_;
+  HQParams params_;
+
+  std::vector<std::unique_ptr<TGConnection>> createdConnections;
+  uint32_t nextConnectionNum = 0;
+  uint32_t nextAvailableClientNum = 0;
+  std::map<uint32_t, TGConnection*> runningConnections;
+  std::vector<uint32_t> idleConnections;
+
+  std::uniform_int_distribution<uint32_t> reuseDistrib;
+  folly::Optional<std::shared_ptr<RequestLog>> requestLog_;
+
+  uint64_t createdRequests{0};
+  uint64_t skippedRequests{0};
+  TimePoint startTime{Clock::now()};
+
+  uint64_t requestsMade{0};
+  double meanSetupTime{0.0};
+};
+
 class TrafficGenerator {
-
-  // Handles the creation of connections and requests
-  class Client {
-   public:
-    Client(uint32_t id, folly::EventBase* evb, HQParams params)
-        : id_(id), evb_(evb), params_(params), reuseDistrib(0, 100) {
-
-      uint32_t gid = params_.clientGroup;
-      std::string localAddress = "10." +
-                                 std::to_string((16 * gid) + (id / 256)) + "." +
-                                 std::to_string(id % 256) + ".2";
-      params_.localAddress = folly::SocketAddress(localAddress, 0, true);
-    }
-
-    uint32_t getId() {
-      return id_;
-    }
-
-    folly::EventBase* getEventBase() {
-      return evb_;
-    }
-
-    void setRequestLog(std::shared_ptr<RequestLog> requestLog) {
-      requestLog_ = requestLog;
-    }
-
-    // Execute GET request on choosen connection
-    void runRequest(std::string requestName);
-
-   private:
-    // Check runningConnections for status
-    void updateConnections();
-
-    uint32_t id_;
-    folly::EventBase* evb_;
-    HQParams params_;
-
-    std::vector<std::unique_ptr<TGConnection>> createdConnections;
-    uint32_t nextConnectionNum = 0;
-    uint32_t nextAvailableClientNum = 0;
-    std::map<uint32_t, TGConnection*> runningConnections;
-    std::vector<uint32_t> idleConnections;
-
-    std::uniform_int_distribution<uint32_t> reuseDistrib;
-    folly::Optional<std::shared_ptr<RequestLog>> requestLog_;
-  };
 
   // Struct helping with generating requests
   // TODO: Make a enum for the gen type
@@ -114,6 +122,7 @@ class TrafficGenerator {
 
  private:
   void mainLoop();
+  void mainLoop2();
 
   HQParams& params_;
   uint32_t numWorkers{0};
@@ -125,9 +134,6 @@ class TrafficGenerator {
 
   folly::dynamic trafficCfg;
   std::priority_queue<TrafficComponent> requestPQueue;
-
-  // TODO: We should maintain how many connections each EventBase is handling
-  // and choose the least used when spawning a new connection.
   std::vector<std::shared_ptr<Client>> runningClients;
 
   folly::Optional<std::shared_ptr<RequestLog>> requestLog;

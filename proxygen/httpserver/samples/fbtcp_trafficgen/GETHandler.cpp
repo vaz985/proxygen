@@ -154,7 +154,7 @@ void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
 void GETHandler::onEOM() noexcept {
   LOG_IF(INFO, loggingEnabled_) << "Got EOM";
   endTime = Clock::now();
-  ended = true;
+  // ended = true;
   if (cb_) {
     folly::SocketAddress localAddress = txn_->getLocalAddress();
     folly::SocketAddress peerAddress = txn_->getPeerAddress();

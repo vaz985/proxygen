@@ -151,7 +151,7 @@ class GETHandler : public proxygen::HTTPTransactionHandler {
   bool partiallyReliable_{false};
   TimePoint startTime;
   TimePoint endTime;
-  bool ended{false};
+  std::atomic_bool ended{false};
   bool error{false};
   uint64_t bodyLength{0};
   folly::Optional<std::shared_ptr<RequestLog>> cb_;

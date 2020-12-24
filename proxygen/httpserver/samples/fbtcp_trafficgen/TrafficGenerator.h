@@ -42,7 +42,6 @@ class Client {
     std::string localAddress = "10." + std::to_string((16 * gid) + (id / 256)) +
                                "." + std::to_string(id % 256) + ".2";
     params_.localAddress = folly::SocketAddress(localAddress, 0, true);
-    idleQueue_ = std::make_unique<sharedQueue<uint64_t>>();
   }
 
   uint32_t getId() {
@@ -99,6 +98,7 @@ class Client {
   std::set<uint64_t> idleQueue;
   std::unordered_map<uint64_t, std::shared_ptr<TGConnection>>
       runningConnections_;
+  std::queue<std::shared_ptr<TGConnection>> remConnections_;
 
   std::uniform_int_distribution<uint32_t> reuseDistrib;
   folly::Optional<std::shared_ptr<RequestLog>> requestLog_;

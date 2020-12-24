@@ -60,7 +60,7 @@ struct HQParams {
 
   uint32_t maxConcurrent;
   uint32_t duration;
-  
+
   // General section
   HQMode mode;
   std::string logprefix;

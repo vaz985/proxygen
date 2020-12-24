@@ -38,7 +38,9 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
   };
 
  public:
-  explicit TGConnection(const HQParams params, folly::EventBase* evb);
+  explicit TGConnection(const HQParams params,
+                        folly::EventBase* evb,
+                        uint64_t connectionNum);
 
   void start();
 
@@ -50,21 +52,16 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
            connState_ == ConnectionState::REPLAY_SAFE;
   }
 
-  bool pending() {
-    return nextRequest.hasValue();
+  bool runningRequest() {
+    return !createdRequests.empty() && !createdRequests.back()->requestEnded();
   }
 
   bool isIdle() {
-    return connected() && !pending() &&
-           (createdRequests.empty() ||
-            (!createdRequests.empty() &&
-             createdRequests.back()->requestEnded()));
+    return connected() && !runningRequest();
   }
 
   bool ended() {
-    return !connected() && (createdRequests.empty() ||
-                            (!createdRequests.empty() &&
-                             createdRequests.back()->requestEnded()));
+    return connState_ == ConnectionState::DONE && !runningRequest();
   }
 
   proxygen::HTTPTransaction* sendRequest(std::string requestName);
@@ -104,12 +101,14 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
 
   std::list<std::unique_ptr<GETHandler>> createdRequests;
 
-  ConnectionState connState_{ConnectionState::NONE};
+  std::atomic<ConnectionState> connState_{ConnectionState::NONE};
 
   folly::Optional<std::shared_ptr<GETHandler::RequestLog>> cb_;
 
   std::string nextURL;
   folly::Optional<std::function<void()>> nextRequest;
+
+  uint64_t connectionNum_{0};
 };
 
 } // namespace samples

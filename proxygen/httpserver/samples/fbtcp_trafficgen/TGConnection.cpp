@@ -30,8 +30,10 @@
 
 namespace quic { namespace samples {
 
-TGConnection::TGConnection(const HQParams params, folly::EventBase* evb)
-    : params_(params), evb_(evb) {
+TGConnection::TGConnection(const HQParams params,
+                           folly::EventBase* evb,
+                           uint64_t connectionNum)
+    : params_(params), evb_(evb), connectionNum_(connectionNum) {
   if (params_.transportSettings.pacingEnabled) {
     pacingTimer_ = TimerHighRes::newTimer(
         evb_, params_.transportSettings.pacingTimerTickInterval);
@@ -40,7 +42,7 @@ TGConnection::TGConnection(const HQParams params, folly::EventBase* evb)
 
 void TGConnection::start() {
   if (connState_ != ConnectionState::NONE) {
-    LOG(ERROR)<< "This cant happen";
+    LOG(ERROR) << "This cant happen";
     return;
   }
 
@@ -52,6 +54,8 @@ void TGConnection::start() {
                                              nullptr, // controller
                                              tinfo,
                                              nullptr); // codecfiltercallback
+
+  session_->setForceUpstream1_1(false);
 
   // TODO: this could now be moved back in the ctor
   session_->setSocket(quicClient_);
@@ -65,19 +69,11 @@ void TGConnection::connectSuccess() {
   connState_ = ConnectionState::CONNECT_SUCCESS;
   // LOG(INFO) << "Connection successful on " <<
   // session_->getLocalAddress().describe();
-  if (nextRequest) {
-    nextRequest.value()();
-    nextRequest.clear();
-  }
 }
 
 void TGConnection::onReplaySafe() {
   connState_ = ConnectionState::REPLAY_SAFE;
   VLOG(1) << "Transport replay safe";
-  if (nextRequest) {
-    nextRequest.value()();
-    nextRequest.clear();
-  }
 }
 
 void TGConnection::connectError(
@@ -101,18 +97,13 @@ TGConnection::sendRequest(std::string requestName) {
     nextRequest = [&]() { sendRequest(nextURL); };
     return nullptr;
   }
-  if (!createdRequests.empty() && !createdRequests.back()->requestEnded()) {
-    // LOG(INFO) << "Stopped request, last stream still running";
+  if (runningRequest()) {
+    VLOG(1) << "Stopped request, last stream still running";
     return nullptr;
   }
   if (!quicClient_->good()) {
     connState_ = ConnectionState::DONE;
-    // LOG(INFO) << "Stopped request, quicClient not good";
-    return nullptr;
-  }
-  if (quicClient_->error()) {
-    connState_ = ConnectionState::DONE;
-    // LOG(INFO) << "Stopped request, quicClient error";
+    VLOG(1) << "Stopped request, quicClient not good";
     return nullptr;
   }
   // LOG(INFO) << "Running request " << requestUrl.getPath();
@@ -169,6 +160,16 @@ void TGConnection::initializeQuicClient() {
 }
 
 void TGConnection::startClosing() {
+  if (connState_ == ConnectionState::DONE) {
+    LOG(WARNING) << "startClosing(): connState_ already DONE";
+    return;
+  }
+  if (!quicClient_->good()) {
+    LOG(WARNING) << "startClosing(): !quicClient_->good() but not DONE";
+    connState_ = ConnectionState::DONE;
+    return;
+  }
+  CHECK(session_ != nullptr);
   connState_ = ConnectionState::DONE;
   close();
 }

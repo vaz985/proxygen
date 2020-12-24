@@ -23,7 +23,9 @@
 DEFINE_uint32(server_group, 0, "");
 // FBTCP Server Settings
 DEFINE_string(event_logs, "", "");
-DEFINE_double(sampling_rate, 0.1, "Percentage of connections observed [0.0, 1.0]");
+DEFINE_double(sampling_rate,
+              0.1,
+              "Percentage of connections observed [0.0, 1.0]");
 // FBTCP TrafficGenerator Settings
 DEFINE_uint32(num_clients, 0, "Number of clients created to generate traffic");
 DEFINE_uint32(num_workers,
@@ -31,7 +33,7 @@ DEFINE_uint32(num_workers,
               "Number of EventBase's handling requests");
 DEFINE_uint32(reuse_prob, 100, "Connection reuse probability [0, 100]%");
 DEFINE_string(traffic_path, "", "JSON traffic profile path");
-DEFINE_string(client_logs, "/tmp/log", "Path to store client logs");
+DEFINE_string(client_logs, "", "Path to store client logs");
 DEFINE_uint32(client_group, 0, "");
 
 DEFINE_string(host, "::1", "HQ server hostname/IP");
@@ -351,7 +353,6 @@ void initializeTransportSettings(HQParams& hqParams) {
   hqParams.transportSettings.shouldUseRecvmmsgForBatchRecv = true;
   hqParams.transportSettings.advertisedInitialMaxStreamsBidi = 100;
   hqParams.transportSettings.advertisedInitialMaxStreamsUni = 100;
-  hqParams.transportSettings.tokenlessPacer = true;
 } // initializeTransportSettings
 
 void initializeHttpSettings(HQParams& hqParams) {

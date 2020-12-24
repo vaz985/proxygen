@@ -42,6 +42,7 @@ class Client {
     std::string localAddress = "10." + std::to_string((16 * gid) + (id / 256)) +
                                "." + std::to_string(id % 256) + ".2";
     params_.localAddress = folly::SocketAddress(localAddress, 0, true);
+    idleQueue_ = std::make_unique<sharedQueue<uint64_t>>();
   }
 
   uint32_t getId() {
@@ -59,20 +60,45 @@ class Client {
   // Execute GET request on choosen connection
   void runRequest(std::string requestName);
 
-  // Check runningConnections for status
-  void updateConnections();
- 
- private:
+  void checkConnections();
 
+  uint64_t getIdleConnection() {
+    std::list<uint64_t>::iterator connNum;
+    for (connNum = keys.begin(); connNum != keys.end();) {
+      auto next = std::next(connNum);
+      TGConnection* connPtr = runningConnections_[*connNum].get();
+      if (connPtr->isIdle()) {
+        return *connNum;
+      }
+      connNum = next;
+    }
+    return 0;
+  }
+
+  void closeAll() {
+    std::list<uint64_t>::iterator connNum;
+    for (connNum = keys.begin(); connNum != keys.end();) {
+      auto next = std::next(connNum);
+      TGConnection* connPtr = runningConnections_[*connNum].get();
+      if (connPtr->connected()) {
+        connPtr->startClosing();
+      }
+      connNum = next;
+    }
+  }
+
+  void createRequest(uint64_t connectionNum, std::string requestName);
+
+ private:
   uint32_t id_;
   folly::EventBase* evb_;
   HQParams params_;
 
-  std::vector<std::unique_ptr<TGConnection>> createdConnections;
-  uint32_t nextConnectionNum = 0;
-  uint32_t nextAvailableClientNum = 0;
-  std::map<uint32_t, TGConnection*> runningConnections;
-  std::vector<uint32_t> idleConnections;
+  uint64_t nextConnectionNum = 1;
+  std::list<uint64_t> keys;
+  std::set<uint64_t> idleQueue;
+  std::unordered_map<uint64_t, std::shared_ptr<TGConnection>>
+      runningConnections_;
 
   std::uniform_int_distribution<uint32_t> reuseDistrib;
   folly::Optional<std::shared_ptr<RequestLog>> requestLog_;

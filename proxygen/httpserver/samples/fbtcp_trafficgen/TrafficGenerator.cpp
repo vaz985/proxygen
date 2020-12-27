@@ -93,36 +93,42 @@ void TrafficGenerator::mainLoop() {
     std::string requestName = nextRequest.name_;
     Client* clientPtr = runningClients[clientNum].get();
 
-    clientPtr->checkConnections();
-    std::this_thread::sleep_until(nextRequest.nextEvent_);
-    uint64_t idleConnection = clientPtr->getIdleConnection();
-    if (idleConnection > 0) {
-      VLOG(1) << "[CID " << clientNum << "] Requesting on idle connection "
-              << idleConnection;
-      clientPtr->createRequest(idleConnection, requestName);
-    } else {
-      VLOG(1) << "[CID " << clientNum
-              << "] Skipping request, no idle connection to use";
-    }
+    std::this_thread::sleep_until(
+        nextRequest.nextEvent_ -
+        std::chrono::microseconds(
+            uint64_t(clientPtr->getEventBase()->getAvgLoopTime())));
+    clientPtr->getEventBase()->runInEventBaseThreadAlwaysEnqueue(std::move(
+        [clientPtr, requestName]() { clientPtr->createRequest(requestName); }));
 
     nextRequest.updateEvent();
     requestPQueue.pop();
     requestPQueue.push(nextRequest);
   }
 
+  LOG(INFO) << "Ended requests, closing remaining connections";
   // Improve this
   for (uint32_t cid = 0; cid < numClients; cid++) {
     Client* clientPtr = runningClients[cid].get();
     clientPtr->getEventBase()->runInEventBaseThreadAlwaysEnqueue(
-        std::move([clientPtr]() { clientPtr->closeAll(); }));
+        std::move([&]() {
+          clientPtr->removeEndedConnetions();
+          clientPtr->closeAll();
+        }));
   }
-
-  std::this_thread::sleep_for(std::chrono::seconds(30));
+  for (uint32_t cid = 0; cid < numClients; cid++) {
+    // LOG(INFO) << "Waiting for client " << cid;
+    Client* clientPtr = runningClients[cid].get();
+    while (clientPtr->getNumRunningConnections() > 0) {
+      clientPtr->getEventBase()->runInEventBaseThreadAlwaysEnqueue(
+          std::move([&]() { clientPtr->removeEndedConnetions(); }));
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+  LOG(INFO) << "Clients successfully closed";
   // setup requests
 }
 
 void TrafficGenerator::start() {
-
   // Creating and starting Evb's in threads
   for (uint32_t i = 0; i < numWorkers; ++i) {
     folly::EventBase::Options opt;
@@ -156,8 +162,7 @@ void TrafficGenerator::start() {
   if (!params_.clientLogs.empty()) {
     folly::Optional<folly::File> exportFile;
 
-    const auto path = params_.clientLogs + "/requestLog";
-    LOG(INFO) << "Logging request to " << path;
+    const auto path = params_.clientLogs + "/request_log";
     auto fileExpect = folly::File::makeFile(path, O_WRONLY | O_TRUNC | O_CREAT);
     if (fileExpect.hasError()) {
       LOG(FATAL)
@@ -165,7 +170,8 @@ void TrafficGenerator::start() {
                             path,
                             folly::exceptionStr(fileExpect.error()));
     } else {
-      LOG(ERROR) << folly::sformat("Opened file {} for export", path);
+      LOG(ERROR) << folly::sformat("Opened file {} for client request log",
+                                   path);
       exportFile = std::move(fileExpect.value());
     }
     requestLog = std::make_shared<RequestLog>(std::move(exportFile));
@@ -189,102 +195,83 @@ void TrafficGenerator::start() {
   // Send signal to clients and gracefully stop
   // End
 
-  for (auto& it : evbs) {
+  for (auto it : evbs) {
     it->terminateLoopSoon();
   }
   LOG(INFO) << "evb end";
 }
 
-void Client::runRequest(std::string requestName) {
-  TimePoint updateStartTime = Clock::now();
-  evb_->dcheckIsInEventBaseThread();
+void Client::createRequest(std::string requestName) {
+  VLOG(1) << "[CID " << id_ << "] Requesting " << requestName;
 
-  checkConnections();
-
-  uint64_t idleConnectionNum = 0;
-  uint64_t idleCount = 0;
-  std::list<uint64_t>::iterator connNum;
-  for (connNum = keys.begin(); connNum != keys.end();) {
-    auto next = std::next(connNum);
-    TGConnection* connPtr = runningConnections_[*connNum].get();
-    if (connPtr->isIdle()) {
-      ++idleCount;
-      idleConnectionNum = *connNum;
+  TGConnection* connPtr = getIdleConnection();
+  bool reuseConnection =
+      (reuseDistrib(gen) <= params_.reuseProb) ? true : false;
+  if (connPtr != nullptr) {
+    uint64_t connectionNum = connPtr->getConnectionNum();
+    VLOG(1) << "[CID " << id_ << "] Reusing connection " << connectionNum;
+    connPtr->sendRequest(requestName);
+    if (!reuseConnection) {
+      connPtr->startClosing();
+      VLOG(1) << "[CID " << id_ << "] Connection " << connectionNum
+              << " queued to be removed";
     }
-    connNum = next;
+  } else {
+    if (getNumRunningConnections() >= params_.maxConcurrent) {
+      VLOG(1) << "[CID " << id_
+              << "] No idle and at max concurrent connections ["
+              << params_.maxConcurrent << "]";
+      return;
+    }
+    while (getNumRunningConnections() < params_.maxConcurrent) {
+      uint64_t newConnectionNum = nextConnectionNum++;
+      VLOG(1) << "[CID " << id_ << "] Creating connection " << newConnectionNum;
+      auto newConnection =
+          std::make_shared<TGConnection>(params_, evb_, newConnectionNum);
+      if (requestLog_) {
+        newConnection->setCallback(requestLog_.value());
+      }
+      pushNewConnection(newConnection);
+      connPtr = newConnection.get();
+      connPtr->start();
+    }
   }
-
-  VLOG(1) << "[CID " << id_ << "] IdleConnections: " << idleCount;
-
-  if (idleConnectionNum == 0) {
-    VLOG(1) << "[CID " << id_ << "] Skipping request, no idle connections";
-    return;
-  }
-
-  if (runningConnections_.count(idleConnectionNum) == 0) {
-    LOG(ERROR) << "idleConnection is not running";
-    return;
-  }
-
-  TGConnection* connPtr = runningConnections_[idleConnectionNum].get();
-  auto txn = connPtr->sendRequest(requestName);
-  if (txn == nullptr) {
-    LOG(INFO) << "Cant send request";
-    return;
-  }
-  bool reuseConnection =
-      (reuseDistrib(gen) <= params_.reuseProb) ? true : false;
-  if (!reuseConnection) {
-    connPtr->startClosing();
-  }
+  removeEndedConnetions();
 }
 
-void Client::createRequest(uint64_t connectionNum, std::string requestName) {
-  CHECK(runningConnections_.count(connectionNum));
-  auto connPtr = runningConnections_[connectionNum];
-  bool reuseConnection =
-      (reuseDistrib(gen) <= params_.reuseProb) ? true : false;
-  TimePoint requestSchedule = Clock::now();
-  evb_->runInEventBaseThreadAlwaysEnqueue(std::move(
-      [connPtr, requestName, reuseConnection, requestSchedule]() mutable {
-        TimePoint requestStart = Clock::now();
-        auto scheduleDuration =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                requestStart - requestSchedule)
-                .count();
-        VLOG(1) << "deltaRequest: " << scheduleDuration << "ns";
-        connPtr->sendRequest(requestName);
-        if (!reuseConnection) {
-          connPtr->startClosing();
-        }
-      }));
-}
-
-void Client::checkConnections() {
-  std::list<uint64_t>::iterator connNum;
-  for (connNum = keys.begin(); connNum != keys.end();) {
-    auto next = std::next(connNum);
-    TGConnection* connPtr = runningConnections_[*connNum].get();
+void Client::removeEndedConnetions() {
+  std::vector<uint64_t> runningCanRemove;
+  for (auto connNum : runningConnections) {
+    auto& connPtr = num2connection[connNum];
     if (connPtr->ended()) {
-      VLOG(1) << "[CID " << id_ << "] Removing connection " << *connNum;
-      keys.erase(connNum);
-      remConnections_.push(runningConnections_[*connNum]);
-      runningConnections_.erase(*connNum);
+      runningCanRemove.push_back(connNum);
     }
-    connNum = next;
   }
+  for (auto connNum : runningCanRemove) {
+    VLOG(1) << "[CID " << id_ << "] Connection " << connNum
+            << " removed from running";
+    runningConnections.erase(connNum);
+    num2connection.erase(connNum);
+  }
+}
 
-  if (keys.size() < params_.maxConcurrent) {
-    VLOG(1) << "[CID " << id_ << "] Creating connection "
-            << runningConnections_.size() << "/" << params_.maxConcurrent;
-    uint64_t newConnectionNum = nextConnectionNum++;
-    auto newConnection =
-        std::make_shared<TGConnection>(params_, evb_, newConnectionNum);
-    newConnection->setCallback(requestLog_.value());
-    keys.push_back(newConnectionNum);
-    runningConnections_[newConnectionNum] = newConnection;
-    evb_->runInEventBaseThreadAlwaysEnqueue(
-        std::move([newConnection]() { newConnection->start(); }));
+TGConnection* Client::getIdleConnection() {
+  for (auto connectionNumIt : runningConnections) {
+    auto connPtr = num2connection[connectionNumIt].get();
+    if (connPtr->isIdle()) {
+      return connPtr;
+    }
+  }
+  return nullptr;
+}
+
+void Client::closeAll() {
+  std::vector<uint64_t> moveThoseConnections;
+  for (auto connectionNum : runningConnections) {
+    auto connPtr = num2connection[connectionNum].get();
+    if (!connPtr->ended()) {
+      connPtr->startClosing();
+    }
   }
 }
 

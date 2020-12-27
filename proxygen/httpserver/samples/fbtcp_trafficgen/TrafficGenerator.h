@@ -56,59 +56,38 @@ class Client {
     requestLog_ = requestLog;
   }
 
-  // Execute GET request on choosen connection
-  void runRequest(std::string requestName);
-
   void checkConnections();
 
-  uint64_t getIdleConnection() {
-    std::list<uint64_t>::iterator connNum;
-    for (connNum = keys.begin(); connNum != keys.end();) {
-      auto next = std::next(connNum);
-      TGConnection* connPtr = runningConnections_[*connNum].get();
-      if (connPtr->isIdle()) {
-        return *connNum;
-      }
-      connNum = next;
-    }
-    return 0;
+  TGConnection* getIdleConnection();
+
+  void removeEndedConnetions();
+
+  void closeAll();
+
+  void createRequest(std::string requestName);
+
+  uint64_t getNumRunningConnections() {
+    return runningConnections.size();
   }
 
-  void closeAll() {
-    std::list<uint64_t>::iterator connNum;
-    for (connNum = keys.begin(); connNum != keys.end();) {
-      auto next = std::next(connNum);
-      TGConnection* connPtr = runningConnections_[*connNum].get();
-      if (connPtr->connected()) {
-        connPtr->startClosing();
-      }
-      connNum = next;
-    }
+  void pushNewConnection(std::shared_ptr<TGConnection>& newConn) {
+    runningConnections.insert(newConn->getConnectionNum());
+    num2connection[newConn->getConnectionNum()] = newConn;
   }
-
-  void createRequest(uint64_t connectionNum, std::string requestName);
 
  private:
   uint32_t id_;
   folly::EventBase* evb_;
   HQParams params_;
 
+  std::mutex connMutex;
   uint64_t nextConnectionNum = 1;
-  std::list<uint64_t> keys;
-  std::set<uint64_t> idleQueue;
-  std::unordered_map<uint64_t, std::shared_ptr<TGConnection>>
-      runningConnections_;
-  std::queue<std::shared_ptr<TGConnection>> remConnections_;
+
+  std::unordered_set<uint64_t> runningConnections;
+  std::unordered_map<uint64_t, std::shared_ptr<TGConnection>> num2connection;
 
   std::uniform_int_distribution<uint32_t> reuseDistrib;
   folly::Optional<std::shared_ptr<RequestLog>> requestLog_;
-
-  uint64_t createdRequests{0};
-  uint64_t skippedRequests{0};
-  TimePoint startTime{Clock::now()};
-
-  uint64_t requestsMade{0};
-  double meanSetupTime{0.0};
 };
 
 class TrafficGenerator {
@@ -148,7 +127,6 @@ class TrafficGenerator {
 
  private:
   void mainLoop();
-  void mainLoop2();
 
   HQParams& params_;
   uint32_t numWorkers{0};

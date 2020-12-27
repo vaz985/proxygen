@@ -53,7 +53,7 @@ void TGConnection::start() {
                                              params_.connectTimeout,
                                              nullptr, // controller
                                              tinfo,
-                                             nullptr); // codecfiltercallback
+                                             this);
 
   session_->setForceUpstream1_1(false);
 
@@ -67,8 +67,8 @@ void TGConnection::start() {
 
 void TGConnection::connectSuccess() {
   connState_ = ConnectionState::CONNECT_SUCCESS;
-  // LOG(INFO) << "Connection successful on " <<
-  // session_->getLocalAddress().describe();
+  VLOG(1) << "Connection successful on "
+          << session_->getLocalAddress().describe();
 }
 
 void TGConnection::onReplaySafe() {
@@ -78,9 +78,9 @@ void TGConnection::onReplaySafe() {
 
 void TGConnection::connectError(
     std::pair<quic::QuicErrorCode, std::string> error) {
-  connState_ = ConnectionState::DONE;
-  // LOG(ERROR) << "TGConnection failed to connect, error="
-  //            << toString(error.first) << ", msg=" << error.second;
+  connState_ = ConnectionState::SAFE_TO_REMOVE;
+  VLOG(1) << "Connection failed to connect, error=" << toString(error.first)
+          << ", msg=" << error.second;
 }
 
 proxygen::HTTPTransaction* FOLLY_NULLABLE
@@ -91,19 +91,16 @@ TGConnection::sendRequest(std::string requestName) {
   }
   // We set the request to run when the connection is established
   if (connState_ == ConnectionState::NONE) {
-    VLOG(1) << "Request after connect, queuing first request and now the "
-               "connection is pending";
-    nextURL = requestName;
-    nextRequest = [&]() { sendRequest(nextURL); };
+    VLOG(1) << "Skipping request, we are not connected yet";
     return nullptr;
   }
   if (runningRequest()) {
     VLOG(1) << "Stopped request, last stream still running";
     return nullptr;
   }
-  if (!quicClient_->good()) {
-    connState_ = ConnectionState::DONE;
-    VLOG(1) << "Stopped request, quicClient not good";
+  if (!quicClient_) {
+    connState_ = ConnectionState::SAFE_TO_REMOVE;
+    LOG(WARNING) << "Stopped request, quicClient == nullptr";
     return nullptr;
   }
   // LOG(INFO) << "Running request " << requestUrl.getPath();
@@ -160,24 +157,26 @@ void TGConnection::initializeQuicClient() {
 }
 
 void TGConnection::startClosing() {
+  if (session_ == nullptr) {
+    LOG(WARNING) << "session_ == nullptr when closing | " << state2str();
+  }
   if (connState_ == ConnectionState::DONE) {
     LOG(WARNING) << "startClosing(): connState_ already DONE";
     return;
   }
-  if (!quicClient_->good()) {
-    LOG(WARNING) << "startClosing(): !quicClient_->good() but not DONE";
-    connState_ = ConnectionState::DONE;
-    return;
-  }
-  CHECK(session_ != nullptr);
   connState_ = ConnectionState::DONE;
   close();
 }
 
 void TGConnection::close() {
-  // QuicTransportBase.cpp:477] close threw exception Cannot encrypt inplace.
-  // session_->describe(LOG(INFO) << "Close: ");
+  if (!quicClient_) {
+    LOG(WARNING) << "quicClient_ not exist";
+    connState_ = ConnectionState::SAFE_TO_REMOVE;
+    return;
+  }
+  VLOG(1) << "[ConnNum " << connectionNum_ << "] Closing...";
   session_->drain();
+  session_->closeWhenIdle();
 }
 
 }} // namespace quic::samples

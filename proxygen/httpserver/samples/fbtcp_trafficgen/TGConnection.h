@@ -10,11 +10,14 @@
 
 #include <list>
 #include <memory>
+#include <mutex>
 
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
 #include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
+
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
+#include <proxygen/lib/http/session/HTTPSessionBase.h>
 
 #include <quic/api/Observer.h>
 #include <quic/common/Timers.h>
@@ -27,14 +30,16 @@ class FileQLogger;
 
 namespace samples {
 
-// Rename to ClientConnection
-class TGConnection : private proxygen::HQSession::ConnectCallback {
+class TGConnection
+    : private proxygen::HQSession::ConnectCallback
+    , public proxygen::HTTPSessionBase::InfoCallback {
 
   enum class ConnectionState {
     NONE = 0,
     CONNECT_SUCCESS = 1,
     REPLAY_SAFE = 2,
-    DONE = 3
+    DONE = 3,
+    SAFE_TO_REMOVE = 4
   };
 
  public:
@@ -51,17 +56,19 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
     return connState_ == ConnectionState::CONNECT_SUCCESS ||
            connState_ == ConnectionState::REPLAY_SAFE;
   }
-
-  bool runningRequest() {
-    return !createdRequests.empty() && !createdRequests.back()->requestEnded();
+  bool ended() {
+    return connState_ == ConnectionState::SAFE_TO_REMOVE;
+    // return connState_ == ConnectionState::DONE && !runningRequest() &&
+    //        !isPendingRequest();
   }
 
   bool isIdle() {
-    return connected() && !runningRequest();
+    return !ended() && connected() && !runningRequest();
   }
 
-  bool ended() {
-    return connState_ == ConnectionState::DONE && !runningRequest();
+  void describe(std::ostream& os) {
+    os << "State: " << state2str() << " Req Running: " << runningRequest()
+       << " Ended: " << ended();
   }
 
   proxygen::HTTPTransaction* sendRequest(std::string requestName);
@@ -70,24 +77,51 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
     cb_ = cbHandler;
   }
 
-  uint16_t getConnectedPort() {
-    if (connState_ == ConnectionState::CONNECT_SUCCESS ||
-        connState_ == ConnectionState::REPLAY_SAFE) {
-      return session_->getLocalAddress().getPort();
-    }
-    return 0;
+  // proxygen::HTTPSessionBase::InfoCallback
+  void onDestroy(const proxygen::HTTPSessionBase& sessionBase) override {
+    VLOG(1) << "[ConnNum " << connectionNum_
+            << "] [onDestroy] connState_: " << state2str();
+    connState_ = ConnectionState::SAFE_TO_REMOVE;
+  }
+
+  uint64_t getConnectionNum() {
+    return connectionNum_;
+  }
+
+  void kill() {
+    session_->dropConnection();
+    connState_ = ConnectionState::SAFE_TO_REMOVE;
   }
 
  private:
+  std::string state2str() {
+    switch (connState_) {
+      case ConnectionState::NONE:
+        return "NONE";
+      case ConnectionState::REPLAY_SAFE:
+        return "REPLAY_SAFE";
+      case ConnectionState::CONNECT_SUCCESS:
+        return "CONNECT_SUCCESS";
+      case ConnectionState::DONE:
+        return "DONE";
+      case ConnectionState::SAFE_TO_REMOVE:
+        return "SAFE_TO_REMOVE";
+    }
+    return "CantHappen";
+  }
+
+  // proxygen::HQSession::ConnectCallback
   void connectSuccess() override;
-
   void onReplaySafe() override;
-
   void connectError(std::pair<quic::QuicErrorCode, std::string> error) override;
 
   void initializeQuicClient();
 
   void close();
+
+  bool runningRequest() {
+    return !createdRequests.empty() && !createdRequests.back()->requestEnded();
+  }
 
   const HQParams params_;
 
@@ -105,9 +139,7 @@ class TGConnection : private proxygen::HQSession::ConnectCallback {
 
   folly::Optional<std::shared_ptr<GETHandler::RequestLog>> cb_;
 
-  std::string nextURL;
-  folly::Optional<std::function<void()>> nextRequest;
-
+  uint64_t clientNum_{0};
   uint64_t connectionNum_{0};
 };
 

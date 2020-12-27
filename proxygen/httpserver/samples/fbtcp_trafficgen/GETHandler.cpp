@@ -137,6 +137,7 @@ void GETHandler::setTransaction(HTTPTransaction*) noexcept {
 }
 
 void GETHandler::detachTransaction() noexcept {
+  VLOG(1) << "GETHandler detachTransaction";
   ended = true;
 }
 
@@ -185,7 +186,7 @@ void GETHandler::onUpgrade(UpgradeProtocol) noexcept {
 }
 
 void GETHandler::onError(const HTTPException& error) noexcept {
-  LOG(INFO) << "An error occurred: " << error.describe();
+  VLOG(1) << "An error occurred: " << error.describe();
   ended = true;
 }
 

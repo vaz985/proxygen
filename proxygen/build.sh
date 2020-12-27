@@ -138,7 +138,7 @@ function setup_fmt() {
   cmake                                           \
     -DCMAKE_PREFIX_PATH="$DEPS_DIR"               \
     -DCMAKE_INSTALL_PREFIX="$DEPS_DIR"            \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo             \
+    -DCMAKE_BUILD_TYPE=Release                    \
     "$MAYBE_OVERRIDE_CXX_FLAGS"                   \
     -DFMT_DOC=OFF                                 \
     -DFMT_TEST=OFF                                \
@@ -167,7 +167,7 @@ function setup_googletest() {
   cmake                                           \
     -DCMAKE_PREFIX_PATH="$DEPS_DIR"               \
     -DCMAKE_INSTALL_PREFIX="$DEPS_DIR"            \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo             \
+    -DCMAKE_BUILD_TYPE=Release                    \
     ..
   make -j "$JOBS"
   make install
@@ -238,7 +238,7 @@ function setup_folly() {
   cmake                                           \
     -DCMAKE_PREFIX_PATH="$DEPS_DIR"               \
     -DCMAKE_INSTALL_PREFIX="$DEPS_DIR"            \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo             \
+    -DCMAKE_BUILD_TYPE=Release                    \
     -DBUILD_TESTS=OFF                             \
     "$MAYBE_USE_STATIC_DEPS"                      \
     "$MAYBE_USE_STATIC_BOOST"                     \
@@ -273,7 +273,7 @@ function setup_fizz() {
     MAYBE_BUILD_SHARED_LIBS="-DBUILD_SHARED_LIBS=OFF"
   fi
 
-  cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo       \
+  cmake -DCMAKE_BUILD_TYPE=Release              \
     -DCMAKE_PREFIX_PATH="$DEPS_DIR"             \
     -DCMAKE_INSTALL_PREFIX="$DEPS_DIR"          \
     -DBUILD_TESTS=OFF                           \
@@ -307,7 +307,7 @@ function setup_wangle() {
     MAYBE_BUILD_SHARED_LIBS="-DBUILD_SHARED_LIBS=OFF"
   fi
 
-  cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo       \
+  cmake -DCMAKE_BUILD_TYPE=Release              \
     -DCMAKE_PREFIX_PATH="$DEPS_DIR"             \
     -DCMAKE_INSTALL_PREFIX="$DEPS_DIR"          \
     -DBUILD_TESTS=OFF                           \
@@ -341,7 +341,7 @@ function setup_mvfst() {
   fi
 
 
-  cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo       \
+  cmake -DCMAKE_BUILD_TYPE=Release              \
     -DCMAKE_PREFIX_PATH="$DEPS_DIR"             \
     -DCMAKE_INSTALL_PREFIX="$DEPS_DIR"          \
     -DBUILD_TESTS=OFF                           \
@@ -458,7 +458,7 @@ fi
 # Build proxygen with cmake
 cd "$BWD" || exit
 cmake                                     \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo       \
+  -DCMAKE_BUILD_TYPE=Release              \
   -DCMAKE_PREFIX_PATH="$DEPS_DIR"         \
   -DCMAKE_INSTALL_PREFIX="$PREFIX"        \
   "$MAYBE_BUILD_QUIC"                     \

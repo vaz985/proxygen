@@ -84,11 +84,11 @@ void TrafficGenerator::mainLoop() {
     }
 
     auto nextRequest = requestPQueue.top();
-    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                         nextRequest.nextEvent_ - currentTime)
                         .count();
 
-    VLOG(1) << "RequestWait: " << duration;
+    VLOG(1) << "RequestWait: " << duration << "ms";
     uint32_t clientNum = nextRequest.cid_;
     std::string requestName = nextRequest.name_;
     Client* clientPtr = runningClients[clientNum].get();
@@ -110,7 +110,7 @@ void TrafficGenerator::mainLoop() {
   for (uint32_t cid = 0; cid < numClients; cid++) {
     Client* clientPtr = runningClients[cid].get();
     clientPtr->getEventBase()->runInEventBaseThreadAlwaysEnqueue(
-        std::move([&]() {
+        std::move([clientPtr]() {
           clientPtr->removeEndedConnetions();
           clientPtr->closeAll();
         }));
@@ -120,7 +120,7 @@ void TrafficGenerator::mainLoop() {
     Client* clientPtr = runningClients[cid].get();
     while (clientPtr->getNumRunningConnections() > 0) {
       clientPtr->getEventBase()->runInEventBaseThreadAlwaysEnqueue(
-          std::move([&]() { clientPtr->removeEndedConnetions(); }));
+          std::move([clientPtr]() { clientPtr->removeEndedConnetions(); }));
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
   }
@@ -205,36 +205,34 @@ void Client::createRequest(std::string requestName) {
   VLOG(1) << "[CID " << id_ << "] Requesting " << requestName;
 
   TGConnection* connPtr = getIdleConnection();
-  bool reuseConnection =
-      (reuseDistrib(gen) <= params_.reuseProb) ? true : false;
-  if (connPtr != nullptr) {
-    uint64_t connectionNum = connPtr->getConnectionNum();
-    VLOG(1) << "[CID " << id_ << "] Reusing connection " << connectionNum;
-    connPtr->sendRequest(requestName);
-    if (!reuseConnection) {
-      connPtr->startClosing();
-      VLOG(1) << "[CID " << id_ << "] Connection " << connectionNum
-              << " queued to be removed";
-    }
-  } else {
+  if (connPtr == nullptr) {
     if (getNumRunningConnections() >= params_.maxConcurrent) {
       VLOG(1) << "[CID " << id_
               << "] No idle and at max concurrent connections ["
               << params_.maxConcurrent << "]";
+      removeEndedConnetions();
       return;
     }
-    while (getNumRunningConnections() < params_.maxConcurrent) {
-      uint64_t newConnectionNum = nextConnectionNum++;
-      VLOG(1) << "[CID " << id_ << "] Creating connection " << newConnectionNum;
-      auto newConnection =
-          std::make_shared<TGConnection>(params_, evb_, newConnectionNum);
-      if (requestLog_) {
-        newConnection->setCallback(requestLog_.value());
-      }
-      pushNewConnection(newConnection);
-      connPtr = newConnection.get();
-      connPtr->start();
+    uint64_t newConnectionNum = nextConnectionNum++;
+    VLOG(1) << "[CID " << id_ << "] Creating connection " << newConnectionNum;
+    auto newConnection =
+        std::make_shared<TGConnection>(params_, evb_, newConnectionNum);
+    if (requestLog_) {
+      newConnection->setCallback(requestLog_.value());
     }
+    pushNewConnection(newConnection);
+    connPtr = newConnection.get();
+    connPtr->start();
+  }
+  CHECK(connPtr);
+  uint64_t connectionNum = connPtr->getConnectionNum();
+  VLOG(1) << "[CID " << id_ << "] Using connection " << connectionNum;
+  bool reuseConnection =
+      (reuseDistrib(gen) <= params_.reuseProb) ? true : false;
+  connPtr->sendRequest(requestName);
+  if (!reuseConnection) {
+    VLOG(1) << "[CID " << id_ << "] Connection " << connectionNum << " will be closed";
+    connPtr->startClosing();
   }
   removeEndedConnetions();
 }
@@ -244,6 +242,7 @@ void Client::removeEndedConnetions() {
   for (auto connNum : runningConnections) {
     auto& connPtr = num2connection[connNum];
     if (connPtr->ended()) {
+      requestRateAdd(connPtr->requestsCompleted());
       runningCanRemove.push_back(connNum);
     }
   }
@@ -253,6 +252,7 @@ void Client::removeEndedConnetions() {
     runningConnections.erase(connNum);
     num2connection.erase(connNum);
   }
+  VLOG(1) << "[CID " << id_ << "] Request rate: " << currentRequestRate();
 }
 
 TGConnection* Client::getIdleConnection() {
@@ -266,7 +266,6 @@ TGConnection* Client::getIdleConnection() {
 }
 
 void Client::closeAll() {
-  std::vector<uint64_t> moveThoseConnections;
   for (auto connectionNum : runningConnections) {
     auto connPtr = num2connection[connectionNum].get();
     if (!connPtr->ended()) {

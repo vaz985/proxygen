@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -75,6 +76,18 @@ class Client {
     num2connection[newConn->getConnectionNum()] = newConn;
   }
 
+  void requestRateAdd(uint64_t amnt) {
+    requestCount += amnt;
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(
+                        Clock::now() - startTime)
+                        .count();
+    requestRate = requestCount / std::max(duration, 1l);
+  }
+
+  double currentRequestRate() {
+    return requestRate.load();
+  }
+
  private:
   uint32_t id_;
   folly::EventBase* evb_;
@@ -86,8 +99,14 @@ class Client {
   std::unordered_set<uint64_t> runningConnections;
   std::unordered_map<uint64_t, std::shared_ptr<TGConnection>> num2connection;
 
+  std::list<uint64_t> pendingCloseConnections;
+
   std::uniform_int_distribution<uint32_t> reuseDistrib;
   folly::Optional<std::shared_ptr<RequestLog>> requestLog_;
+
+  TimePoint startTime{Clock::now()};
+  std::atomic<uint64_t> requestCount{0};
+  std::atomic<double> requestRate{0.0};
 };
 
 class TrafficGenerator {

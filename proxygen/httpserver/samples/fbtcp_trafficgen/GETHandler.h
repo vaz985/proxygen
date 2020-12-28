@@ -29,6 +29,13 @@ static std::uniform_int_distribution<uint32_t> requestIdGen;
 // Rename to GETHandler
 class GETHandler : public proxygen::HTTPTransactionHandler {
 
+  enum class RequestState {
+    NONE = 0,
+    STARTED = 1,
+    ENDED = 2,
+    ERROR = 3,
+  };
+
  public:
   enum class eventType { NONE, START, FINISH };
   struct requestEvent {
@@ -71,13 +78,9 @@ class GETHandler : public proxygen::HTTPTransactionHandler {
   };
 
   GETHandler(folly::EventBase* evb,
-             // std::shared_ptr<quic::QuicClientTransport>& sock,
              proxygen::HTTPMethod httpMethod,
              std::string requestName,
-             const proxygen::URL* proxy,
              const proxygen::HTTPHeaders& headers,
-             const std::string& inputFilename,
-             bool h2c = false,
              unsigned short httpMajor = 1,
              unsigned short httpMinor = 1);
 
@@ -108,22 +111,16 @@ class GETHandler : public proxygen::HTTPTransactionHandler {
 
   const std::string& getServerName() const;
 
-  void setFlowControlSettings(int32_t recvWindow);
-
-  void setLogging(bool enabled) {
-    loggingEnabled_ = enabled;
-  }
-
-  void setNextFunc(std::function<void()> nextFunc) {
-    nextFunc_ = nextFunc;
-  }
-
   bool requestEnded() {
-    return ended;
+    return requestState_ == RequestState::ENDED;
   }
 
   bool hadAnError() {
-    return error;
+    return requestState_ == RequestState::ERROR;
+  }
+
+  bool canRemove() {
+    return canRemove_;
   }
 
   void setCallback(std::shared_ptr<RequestLog> cbHandler) {
@@ -138,25 +135,19 @@ class GETHandler : public proxygen::HTTPTransactionHandler {
   proxygen::HTTPMethod httpMethod_;
   std::string requestName_;
   proxygen::URL url_;
-  std::unique_ptr<proxygen::URL> proxy_;
   proxygen::HTTPMessage request_;
-  const std::string inputFilename_;
   folly::SSLContextPtr sslContext_;
   int32_t recvWindow_{0};
-  bool loggingEnabled_{true};
-  bool h2c_{false};
   unsigned short httpMajor_;
   unsigned short httpMinor_;
-  bool egressPaused_{false};
-  bool partiallyReliable_{false};
   TimePoint startTime;
   TimePoint endTime;
-  std::atomic_bool ended{false};
-  bool error{false};
   uint64_t bodyLength{0};
   folly::Optional<std::shared_ptr<RequestLog>> cb_;
   uint32_t requestId_ = requestIdGen(gen);
-  folly::Optional<std::function<void()>> nextFunc_;
+
+  std::atomic<RequestState> requestState_{RequestState::NONE};
+  std::atomic_bool canRemove_{false};
 };
 
 } // namespace samples

@@ -69,11 +69,13 @@ void TGConnection::connectSuccess() {
   connState_ = ConnectionState::CONNECT_SUCCESS;
   VLOG(1) << "Connection successful on "
           << session_->getLocalAddress().describe();
+  processPendingRequest();
 }
 
 void TGConnection::onReplaySafe() {
   connState_ = ConnectionState::REPLAY_SAFE;
   VLOG(1) << "Transport replay safe";
+  processPendingRequest();
 }
 
 void TGConnection::connectError(
@@ -91,7 +93,8 @@ TGConnection::sendRequest(std::string requestName) {
   }
   // We set the request to run when the connection is established
   if (connState_ == ConnectionState::NONE) {
-    VLOG(1) << "Skipping request, we are not connected yet";
+    VLOG(1) << "Enqueuing request for when we connect";
+    nextRequest = requestName;
     return nullptr;
   }
   if (runningRequest()) {
@@ -103,26 +106,22 @@ TGConnection::sendRequest(std::string requestName) {
     LOG(WARNING) << "Stopped request, quicClient == nullptr";
     return nullptr;
   }
-  // LOG(INFO) << "Running request " << requestUrl.getPath();
   std::unique_ptr<GETHandler> request =
       std::make_unique<GETHandler>(evb_,
                                    params_.httpMethod,
                                    requestName,
-                                   nullptr,
                                    params_.httpHeaders,
-                                   params_.httpBody,
-                                   false,
                                    params_.httpVersion.major,
                                    params_.httpVersion.minor);
   if (cb_) {
     request->setCallback(cb_.value());
   }
 
-  request->setLogging(false);
   auto txn = session_->newTransaction(request.get());
   if (!txn) {
     return nullptr;
   }
+  VLOG(1) << "[ConnNum " << connectionNum_ << "] Running request " << requestName;
   request->sendRequest(txn);
   // The emplace guarantees that no other stream will be created before rcving
   // EOM, maybe we should guarantee this earlier
@@ -165,7 +164,11 @@ void TGConnection::startClosing() {
     return;
   }
   connState_ = ConnectionState::DONE;
-  close();
+  if (nextRequest.has_value()) {
+    delayClose = true;
+  } else {
+    close();
+  }
 }
 
 void TGConnection::close() {

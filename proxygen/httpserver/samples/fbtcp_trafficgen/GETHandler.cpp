@@ -31,22 +31,15 @@ namespace quic { namespace samples {
 GETHandler::GETHandler(EventBase* evb,
                        HTTPMethod httpMethod,
                        std::string requestName,
-                       const proxygen::URL* proxy,
                        const HTTPHeaders& headers,
-                       const string& inputFilename,
-                       bool h2c,
                        unsigned short httpMajor,
                        unsigned short httpMinor)
     : evb_(evb),
       httpMethod_(httpMethod),
       requestName_(requestName),
-      inputFilename_(inputFilename),
-      h2c_(h2c),
       httpMajor_(httpMajor),
       httpMinor_(httpMinor) {
-  if (proxy != nullptr) {
-    proxy_ = std::make_unique<URL>(proxy->getUrl());
-  }
+
   url_ = proxygen::URL(requestName_, true);
   headers.forEach([this](const string& header, const string& val) {
     request_.getHeaders().add(header, val);
@@ -77,23 +70,12 @@ HTTPHeaders GETHandler::parseHeaders(const std::string& headersString) {
   return headers;
 }
 
-void GETHandler::setFlowControlSettings(int32_t recvWindow) {
-  recvWindow_ = recvWindow;
-}
-
 void GETHandler::setupHeaders() {
   request_.setMethod(httpMethod_);
   request_.setHTTPVersion(httpMajor_, httpMinor_);
-  if (proxy_) {
-    request_.setURL(url_.getUrl());
-  } else {
-    request_.setURL(url_.makeRelativeURL());
-  }
-  request_.setSecure(url_.isSecure());
-  if (h2c_) {
-    HTTP2Codec::requestUpgrade(request_);
-  }
+  request_.setURL(url_.makeRelativeURL());
 
+  request_.setSecure(url_.isSecure());
   if (!request_.getHeaders().getNumberOfValues(HTTP_HEADER_USER_AGENT)) {
     request_.getHeaders().add(HTTP_HEADER_USER_AGENT, "proxygen_curl");
   }
@@ -103,21 +85,16 @@ void GETHandler::setupHeaders() {
   if (!request_.getHeaders().getNumberOfValues(HTTP_HEADER_ACCEPT)) {
     request_.getHeaders().add("Accept", "*/*");
   }
-  if (loggingEnabled_) {
-    request_.dumpMessage(4);
-  }
-
-  if (partiallyReliable_) {
-    request_.setPartiallyReliable();
-  }
+  request_.dumpMessage(4);
 }
 
 void GETHandler::sendRequest(HTTPTransaction* txn) {
+  requestState_ = RequestState::STARTED;
+  startTime = Clock::now();
+
   txn_ = txn;
   setupHeaders();
   txn_->sendHeadersWithEOM(request_);
-
-  startTime = Clock::now();
   if (cb_) {
 
     const folly::SocketAddress peerAddress = txn_->getPeerAddress();
@@ -133,29 +110,14 @@ void GETHandler::sendRequest(HTTPTransaction* txn) {
   }
 }
 
-void GETHandler::setTransaction(HTTPTransaction*) noexcept {
-}
-
-void GETHandler::detachTransaction() noexcept {
-  VLOG(1) << "GETHandler detachTransaction";
-  ended = true;
-}
-
-void GETHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
-}
-
 void GETHandler::onBody(std::unique_ptr<folly::IOBuf> chain) noexcept {
   bodyLength += chain->computeChainDataLength();
 }
 
-void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
-  LOG_IF(INFO, loggingEnabled_) << "Discarding trailers";
-}
-
 void GETHandler::onEOM() noexcept {
-  LOG_IF(INFO, loggingEnabled_) << "Got EOM";
+  VLOG(1) << "Got EOM";
   endTime = Clock::now();
-  // ended = true;
+  // Log request end if the callback exists
   if (cb_) {
     folly::SocketAddress localAddress = txn_->getLocalAddress();
     folly::SocketAddress peerAddress = txn_->getPeerAddress();
@@ -181,23 +143,9 @@ void GETHandler::onEOM() noexcept {
   }
 }
 
-void GETHandler::onUpgrade(UpgradeProtocol) noexcept {
-  LOG_IF(INFO, loggingEnabled_) << "Discarding upgrade protocol";
-}
-
 void GETHandler::onError(const HTTPException& error) noexcept {
   VLOG(1) << "An error occurred: " << error.describe();
-  ended = true;
-}
-
-void GETHandler::onEgressPaused() noexcept {
-  LOG_IF(INFO, loggingEnabled_) << "Egress paused";
-  egressPaused_ = true;
-}
-
-void GETHandler::onEgressResumed() noexcept {
-  LOG_IF(INFO, loggingEnabled_) << "Egress resumed";
-  egressPaused_ = false;
+  requestState_ = RequestState::ERROR;
 }
 
 const string& GETHandler::getServerName() const {
@@ -206,6 +154,24 @@ const string& GETHandler::getServerName() const {
     return url_.getHost();
   }
   return res;
+}
+
+void GETHandler::detachTransaction() noexcept {
+  VLOG(1) << "detachTransaction()";
+  canRemove_ = true;
+}
+
+void GETHandler::onUpgrade(UpgradeProtocol) noexcept {
+}
+void GETHandler::onEgressPaused() noexcept {
+}
+void GETHandler::onEgressResumed() noexcept {
+}
+void GETHandler::onTrailers(std::unique_ptr<HTTPHeaders>) noexcept {
+}
+void GETHandler::onHeadersComplete(unique_ptr<HTTPMessage> msg) noexcept {
+}
+void GETHandler::setTransaction(HTTPTransaction*) noexcept {
 }
 
 }} // namespace quic::samples

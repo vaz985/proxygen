@@ -63,7 +63,7 @@ class TGConnection
   }
 
   bool isIdle() {
-    return !ended() && connected() && !runningRequest();
+    return connected() && !runningRequest() && !nextRequest.has_value();
   }
 
   void describe(std::ostream& os) {
@@ -93,6 +93,26 @@ class TGConnection
     connState_ = ConnectionState::SAFE_TO_REMOVE;
   }
 
+  uint64_t requestsCompleted() {
+    uint64_t completedRequests{0};
+    for (auto& request : createdRequests) {
+      if (request->requestEnded()) {
+        ++completedRequests;
+      }
+    }
+    return completedRequests;
+  }
+
+  uint64_t requestsWithError() {
+    uint64_t errorRequests{0};
+    for (auto& request : createdRequests) {
+      if (request->hadAnError()) {
+        ++errorRequests;
+      }
+    }
+    return errorRequests;
+  }
+
  private:
   std::string state2str() {
     switch (connState_) {
@@ -120,7 +140,18 @@ class TGConnection
   void close();
 
   bool runningRequest() {
-    return !createdRequests.empty() && !createdRequests.back()->requestEnded();
+    return !createdRequests.empty() && !createdRequests.back()->canRemove();
+  }
+
+  void processPendingRequest() {
+    if (nextRequest.has_value()) {
+      sendRequest(nextRequest.value());
+      nextRequest.clear();
+      if (delayClose) {
+        close();
+        delayClose = false;
+      }
+    }
   }
 
   const HQParams params_;
@@ -137,10 +168,15 @@ class TGConnection
 
   std::atomic<ConnectionState> connState_{ConnectionState::NONE};
 
+  bool delayClose{false};
+  folly::Optional<std::string> nextRequest;
+
   folly::Optional<std::shared_ptr<GETHandler::RequestLog>> cb_;
 
   uint64_t clientNum_{0};
   uint64_t connectionNum_{0};
+  std::atomic<uint64_t> requestsCompleted_{0};
+  std::atomic<uint64_t> requestsWithError_{0};
 };
 
 } // namespace samples

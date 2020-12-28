@@ -371,8 +371,7 @@ void initializeHttpSettings(HQParams& hqParams) {
   hqParams.txnTimeout = std::chrono::milliseconds(FLAGS_txn_timeout);
   folly::split(',', FLAGS_path, hqParams.httpPaths);
   hqParams.httpBody = FLAGS_body;
-  hqParams.httpMethod = hqParams.httpBody.empty() ? proxygen::HTTPMethod::GET
-                                                  : proxygen::HTTPMethod::POST;
+  hqParams.httpMethod = proxygen::HTTPMethod::GET;
 
   // parse HTTP headers
   hqParams.httpHeadersString = FLAGS_headers;

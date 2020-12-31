@@ -99,7 +99,6 @@ class Client {
   std::unordered_set<uint64_t> runningConnections;
   std::unordered_map<uint64_t, std::shared_ptr<TGConnection>> num2connection;
 
-  std::list<uint64_t> pendingCloseConnections;
 
   std::uniform_int_distribution<uint32_t> reuseDistrib;
   folly::Optional<std::shared_ptr<RequestLog>> requestLog_;
@@ -124,7 +123,7 @@ class TrafficGenerator {
     TrafficComponent(uint32_t cid, std::string name, double rate)
         : cid_(cid), name_(name), rate_(rate), distrib(rate) {
       nextEvent_ = Clock::now();
-      updateEvent();
+      // updateEvent();
     }
 
     bool operator<(const TrafficComponent& rhs) const {

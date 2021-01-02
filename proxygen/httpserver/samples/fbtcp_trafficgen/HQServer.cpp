@@ -155,10 +155,15 @@ HQServerTransportFactory::HQServerTransportFactory(
       httpTransactionHandlerProvider_(httpTransactionHandlerProvider),
       samplingRate_(0.0, 1.0) {
   if (params_.eventLogs.size() > 0) {
-    std::string logPath = params_.eventLogs + "/event.log";
-    auto fp =
-        folly::File::makeFile(logPath, O_WRONLY | O_TRUNC | O_CREAT).value();
-    obs_.emplace(std::move(fp));
+    std::string rttSamplesPath = params_.eventLogs + "/rtt_samples";
+    std::string endConnectionPath = params_.eventLogs + "/end_samples";
+    auto rttSamplesFp =
+        folly::File::makeFile(rttSamplesPath, O_WRONLY | O_TRUNC | O_CREAT)
+            .value();
+    auto endConnectionFp =
+        folly::File::makeFile(endConnectionPath, O_WRONLY | O_TRUNC | O_CREAT)
+            .value();
+    obs_.emplace(std::move(rttSamplesFp), std::move(endConnectionFp));
   }
 }
 
@@ -238,6 +243,7 @@ void HQServer::stop() {
 }
 
 void HQServer::rejectNewConnections(bool reject) {
+  LOG(INFO) << "Rejecting new connections";
   server_->rejectNewConnections(reject);
 }
 
@@ -332,26 +338,139 @@ void startServer(const HQParams& params) {
   // h2server.join();
 }
 
-// Observer
-ConnectionObserver::ConnectionObserver(
-    folly::Optional<folly::File>&& outputFile)
-    : outputFile_(std::move(outputFile)) {
+static std::vector<std::string> setupRttHeaders() {
   std::vector<std::string> row;
   row.push_back("evtstamp");
-  row.push_back("type");
   row.push_back("dst");
   row.push_back("src");
-  row.push_back("sample_rtt_ms");
-  row.push_back("sample_ackdelay_ms");
-  const std::lock_guard<std::mutex> lock(writeMutex);
-  writeToOutput(outputFile_, folly::join(",", row));
+  row.push_back("rtt_ms");
+  row.push_back("ackdelay_ms");
+  row.push_back("inflight_bytes");
+  row.push_back("encoded_size");
+  // quic::QuicSocket::TransportInfo
+  row.push_back("srtt");
+  row.push_back("rttvar");
+  row.push_back("lrtt");
+  row.push_back("mrtt");
+  row.push_back("mss");
+  row.push_back("writableBytes");
+  row.push_back("congestionWindow");
+  row.push_back("pacingBurstSize");
+  row.push_back("pacingInterval");
+  row.push_back("packetsRetransmitted");
+  row.push_back("totalPacketsSent");
+  row.push_back("totalPacketsMarkedLost");
+  row.push_back("totalPacketsMarkedLostByPto");
+  row.push_back("totalPacketsMarkedLostByReorderingThreshold");
+  row.push_back("packetsSpuriouslyLost");
+  row.push_back("timeoutBasedLoss");
+  row.push_back("pto");
+  row.push_back("bytesSent");
+  row.push_back("bytesAcked");
+  row.push_back("bytesRecvd");
+  row.push_back("totalBytesRetransmitted");
+  row.push_back("ptoCount");
+  row.push_back("totalPTOCount");
+  return row;
+}
+
+static std::vector<std::string> setupEndHeaders() {
+  std::vector<std::string> row;
+  row.push_back("evtstamp");
+  row.push_back("dst");
+  row.push_back("src");
+  // quic::QuicSocket::TransportInfo
+  row.push_back("srtt");
+  row.push_back("rttvar");
+  row.push_back("lrtt");
+  row.push_back("mrtt");
+  row.push_back("mss");
+  row.push_back("writableBytes");
+  row.push_back("congestionWindow");
+  row.push_back("pacingBurstSize");
+  row.push_back("pacingInterval");
+  row.push_back("packetsRetransmitted");
+  row.push_back("totalPacketsSent");
+  row.push_back("totalPacketsMarkedLost");
+  row.push_back("totalPacketsMarkedLostByPto");
+  row.push_back("totalPacketsMarkedLostByReorderingThreshold");
+  row.push_back("packetsSpuriouslyLost");
+  row.push_back("timeoutBasedLoss");
+  row.push_back("pto");
+  row.push_back("bytesSent");
+  row.push_back("bytesAcked");
+  row.push_back("bytesRecvd");
+  row.push_back("totalBytesRetransmitted");
+  row.push_back("ptoCount");
+  row.push_back("totalPTOCount");
+  return row;
+}
+
+// Observer
+ConnectionObserver::ConnectionObserver(
+    folly::Optional<folly::File>&& rttSampleFile, folly::Optional<folly::File>&& endConnectionFile)
+    : rttSampleFile_(std::move(rttSampleFile)), endConnectionFile_(std::move(endConnectionFile)) {
+  {
+    std::lock_guard<std::mutex> lock(rttMutex);
+    writeToOutput(rttSampleFile_, folly::join(",", setupRttHeaders()));
+  }
+  {
+    std::lock_guard<std::mutex> lock(endMutex);
+    writeToOutput(endConnectionFile_, folly::join(",", setupEndHeaders()));
+  }
 }
 
 void ConnectionObserver::observerDetach(QuicSocket* sock) noexcept {
+  std::vector<std::string> row;
+
+  const folly::SocketAddress peerAddress = sock->getPeerAddress();
+  const folly::SocketAddress localAddress = sock->getLocalAddress();
+  // quic::QuicSocket::TransportInfo tinfo = sock->getTransportInfo();
+
+  row.push_back(std::to_string(Clock::now().time_since_epoch().count()));
+  std::string dst =
+      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
+  std::string src = localAddress.getAddressStr() + ":" +
+                    std::to_string(localAddress.getPort());
+  row.push_back(dst);
+  row.push_back(src);
+  quic::QuicSocket::TransportInfo tinfo = sock->getTransportInfo();
+  row.push_back(std::to_string(tinfo.srtt.count()));
+  row.push_back(std::to_string(tinfo.rttvar.count()));
+  row.push_back(std::to_string(tinfo.lrtt.count()));
+  row.push_back(std::to_string(tinfo.mrtt.count()));
+  row.push_back(std::to_string(tinfo.mss));
+  row.push_back(std::to_string(tinfo.writableBytes));
+  row.push_back(std::to_string(tinfo.congestionWindow));
+  row.push_back(std::to_string(tinfo.pacingBurstSize));
+  row.push_back(std::to_string(tinfo.pacingInterval.count()));
+  row.push_back(std::to_string(tinfo.packetsRetransmitted));
+  row.push_back(std::to_string(tinfo.totalPacketsSent));
+  row.push_back(std::to_string(tinfo.totalPacketsMarkedLost));
+  row.push_back(std::to_string(tinfo.totalPacketsMarkedLostByPto));
+  row.push_back(
+      std::to_string(tinfo.totalPacketsMarkedLostByReorderingThreshold));
+  row.push_back(std::to_string(tinfo.packetsSpuriouslyLost));
+  row.push_back(std::to_string(tinfo.timeoutBasedLoss));
+  row.push_back(std::to_string(tinfo.pto.count()));
+  row.push_back(std::to_string(tinfo.bytesSent));
+  row.push_back(std::to_string(tinfo.bytesAcked));
+  row.push_back(std::to_string(tinfo.bytesRecvd));
+  row.push_back(std::to_string(tinfo.totalBytesRetransmitted));
+  row.push_back(std::to_string(tinfo.ptoCount));
+  row.push_back(std::to_string(tinfo.totalPTOCount));
+
+  const std::lock_guard<std::mutex> lock(endMutex);
+  writeToOutput(endConnectionFile_, folly::join(",", row));
 }
 
 void ConnectionObserver::rttSampleGenerated(
     QuicSocket* sock, const quic::InstrumentationObserver::PacketRTT& pktRTT) {
+  // Lets skip high inflightBytes
+  uint64_t inflightBytes = pktRTT.metadata.inflightBytes;
+  if (inflightBytes > 0) {
+    return;
+  }
 
   const folly::SocketAddress peerAddress = sock->getPeerAddress();
   const folly::SocketAddress localAddress = sock->getLocalAddress();
@@ -362,25 +481,48 @@ void ConnectionObserver::rttSampleGenerated(
   std::string src = localAddress.getAddressStr() + ":" +
                     std::to_string(localAddress.getPort());
 
-  std::chrono::system_clock::time_point tp = std::chrono::system_clock::now();
-  std::chrono::system_clock::duration dtn = tp.time_since_epoch();
-
   std::vector<std::string> row;
-  row.push_back(std::to_string(dtn.count()));
-  row.push_back("RTTEVENT");
+  row.push_back(std::to_string(pktRTT.rcvTime.time_since_epoch().count()));
   row.push_back(dst);
   row.push_back(src);
   row.push_back(std::to_string(pktRTT.rttSample.count()));
   row.push_back(std::to_string(pktRTT.ackDelay.count()));
+  row.push_back(std::to_string(inflightBytes));
+  row.push_back(std::to_string(pktRTT.metadata.encodedSize));
 
-  const std::lock_guard<std::mutex> lock(writeMutex);
-  writeToOutput(outputFile_, folly::join(",", row));
+  quic::QuicSocket::TransportInfo tinfo = sock->getTransportInfo();
+  row.push_back(std::to_string(tinfo.srtt.count()));
+  row.push_back(std::to_string(tinfo.rttvar.count()));
+  row.push_back(std::to_string(tinfo.lrtt.count()));
+  row.push_back(std::to_string(tinfo.mrtt.count()));
+  row.push_back(std::to_string(tinfo.mss));
+  row.push_back(std::to_string(tinfo.writableBytes));
+  row.push_back(std::to_string(tinfo.congestionWindow));
+  row.push_back(std::to_string(tinfo.pacingBurstSize));
+  row.push_back(std::to_string(tinfo.pacingInterval.count()));
+  row.push_back(std::to_string(tinfo.packetsRetransmitted));
+  row.push_back(std::to_string(tinfo.totalPacketsSent));
+  row.push_back(std::to_string(tinfo.totalPacketsMarkedLost));
+  row.push_back(std::to_string(tinfo.totalPacketsMarkedLostByPto));
+  row.push_back(
+      std::to_string(tinfo.totalPacketsMarkedLostByReorderingThreshold));
+  row.push_back(std::to_string(tinfo.packetsSpuriouslyLost));
+  row.push_back(std::to_string(tinfo.timeoutBasedLoss));
+  row.push_back(std::to_string(tinfo.pto.count()));
+  row.push_back(std::to_string(tinfo.bytesSent));
+  row.push_back(std::to_string(tinfo.bytesAcked));
+  row.push_back(std::to_string(tinfo.bytesRecvd));
+  row.push_back(std::to_string(tinfo.totalBytesRetransmitted));
+  row.push_back(std::to_string(tinfo.ptoCount));
+  row.push_back(std::to_string(tinfo.totalPTOCount));
+
+  const std::lock_guard<std::mutex> lock(rttMutex);
+  writeToOutput(rttSampleFile_, folly::join(",", row));
 }
 
 void ConnectionObserver::packetLossDetected(
     QuicSocket* sock,
     const struct quic::InstrumentationObserver::ObserverLossEvent& lossEvent) {
-
   const folly::SocketAddress peerAddress = sock->getPeerAddress();
   const folly::SocketAddress localAddress = sock->getLocalAddress();
 

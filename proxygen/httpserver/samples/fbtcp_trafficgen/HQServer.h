@@ -39,9 +39,10 @@ class ConnectionObserver : public quic::InstrumentationObserver {
  public:
   enum class eventType { NONE, RTTEVENT };
   // struct E
-  explicit ConnectionObserver(folly::Optional<folly::File>&& outputFile);
+  explicit ConnectionObserver(folly::Optional<folly::File>&& rttSampleFile,
+                              folly::Optional<folly::File>&& endConnectionFile);
 
-  void observerDetach(QuicSocket* sock) noexcept;
+  void observerDetach(QuicSocket* sock) noexcept override;
 
   void rttSampleGenerated(
       QuicSocket* sock,
@@ -53,8 +54,10 @@ class ConnectionObserver : public quic::InstrumentationObserver {
       override;
 
  private:
-  folly::Optional<folly::File> outputFile_;
-  std::mutex writeMutex;
+  std::mutex rttMutex;
+  std::mutex endMutex;
+  folly::Optional<folly::File> rttSampleFile_;
+  folly::Optional<folly::File> endConnectionFile_;
 };
 
 /**

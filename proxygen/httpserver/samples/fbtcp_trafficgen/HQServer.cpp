@@ -343,8 +343,8 @@ static std::vector<std::string> setupRttHeaders() {
   row.push_back("evtstamp");
   row.push_back("dst");
   row.push_back("src");
-  row.push_back("rtt_ms");
-  row.push_back("ackdelay_ms");
+  row.push_back("rtt_us");
+  row.push_back("ackdelay_us");
   row.push_back("inflight_bytes");
   row.push_back("encoded_size");
   // quic::QuicSocket::TransportInfo
@@ -518,24 +518,6 @@ void ConnectionObserver::rttSampleGenerated(
 
   const std::lock_guard<std::mutex> lock(rttMutex);
   writeToOutput(rttSampleFile_, folly::join(",", row));
-}
-
-void ConnectionObserver::packetLossDetected(
-    QuicSocket* sock,
-    const struct quic::InstrumentationObserver::ObserverLossEvent& lossEvent) {
-  const folly::SocketAddress peerAddress = sock->getPeerAddress();
-  const folly::SocketAddress localAddress = sock->getLocalAddress();
-
-  std::string dst =
-      peerAddress.getAddressStr() + ":" + std::to_string(peerAddress.getPort());
-  std::string src = localAddress.getAddressStr() + ":" +
-                    std::to_string(localAddress.getPort());
-
-  std::vector<std::string> lostPackets;
-  for (auto it : lossEvent.lostPackets) {
-    lostPackets.emplace_back(
-        std::to_string(it.packet.packet.header.getPacketSequenceNum()));
-  }
 }
 
 }} // namespace quic::samples

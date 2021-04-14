@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
+#include <proxygen/fbtcp_trafficgen/HQLoggerHelper.h>
 
 using namespace quic::samples;
 

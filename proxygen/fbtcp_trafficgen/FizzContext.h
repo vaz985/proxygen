@@ -10,7 +10,7 @@
 
 #include <fizz/client/FizzClientContext.h>
 #include <fizz/server/FizzServerContext.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
 #include <wangle/ssl/SSLContextConfig.h>
 
 namespace quic { namespace samples {

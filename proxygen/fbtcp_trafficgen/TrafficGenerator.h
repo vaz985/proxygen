@@ -16,10 +16,10 @@
 #include <folly/io/async/EventBaseManager.h>
 #include <folly/io/async/ScopedEventBaseThread.h>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/TGConnection.h>
+#include <proxygen/fbtcp_trafficgen/GETHandler.h>
+#include <proxygen/fbtcp_trafficgen/HQLoggerHelper.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/TGConnection.h>
 
 namespace quic { namespace samples {
 

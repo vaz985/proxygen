@@ -16,8 +16,8 @@
 #include <proxygen/httpserver/HTTPServer.h>
 #include <proxygen/httpserver/HTTPTransactionHandlerAdaptor.h>
 #include <proxygen/httpserver/RequestHandlerFactory.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/SampleHandlers.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/SampleHandlers.h>
 #include <proxygen/lib/http/session/HQDownstreamSession.h>
 #include <proxygen/lib/http/session/HTTPSessionController.h>
 #include <proxygen/lib/utils/WheelTimerInstance.h>
@@ -35,7 +35,7 @@ using HTTPTransactionHandlerProvider =
     std::function<proxygen::HTTPTransactionHandler*(proxygen::HTTPMessage*,
                                                     const HQParams&)>;
 
-class ConnectionObserver : public quic::InstrumentationObserver {
+class ConnectionObserver : public quic::Observer {
  public:
   enum class eventType { NONE, RTTEVENT };
   // struct E
@@ -46,12 +46,12 @@ class ConnectionObserver : public quic::InstrumentationObserver {
 
   void rttSampleGenerated(
       QuicSocket* sock,
-      const quic::InstrumentationObserver::PacketRTT& pktRTT) override;
+      const quic::Observer::PacketRTT& pktRTT) override;
 
-  void packetLossDetected(
-      QuicSocket* sock,
-      const struct quic::InstrumentationObserver::ObserverLossEvent& lossEvent)
-      override;
+  // void packetLossDetected(
+  //     QuicSocket* sock,
+  //     const struct quic::Observer::LossEvent& lossEvent)
+  //     override;
 
  private:
   std::mutex rttMutex;

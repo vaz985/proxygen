@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
 
 #include <folly/io/async/AsyncSocketException.h>
 #include <folly/io/async/AsyncTransport.h>
@@ -311,7 +311,7 @@ void initializeTransportSettings(HQParams& hqParams) {
       std::chrono::microseconds(FLAGS_quic_thread_local_delay_us);
   hqParams.transportSettings.maxBatchSize = FLAGS_quic_batch_size;
   hqParams.transportSettings.turnoffPMTUD = true;
-  hqParams.transportSettings.partialReliabilityEnabled = FLAGS_use_pr;
+  // hqParams.transportSettings.partialReliabilityEnabled = FLAGS_use_pr;
   if (hqParams.mode == HQMode::CLIENT) {
     hqParams.transportSettings.shouldDrain = true;
     hqParams.transportSettings.attemptEarlyData = FLAGS_early_data;

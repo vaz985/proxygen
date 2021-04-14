@@ -13,7 +13,7 @@
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/SSLContext.h>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/Utils.h>
+#include <proxygen/fbtcp_trafficgen/Utils.h>
 #include <proxygen/lib/http/HTTPConnector.h>
 #include <proxygen/lib/http/session/HTTPTransaction.h>
 #include <proxygen/lib/utils/URL.h>

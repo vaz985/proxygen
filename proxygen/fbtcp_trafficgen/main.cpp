@@ -14,11 +14,11 @@
 #include <proxygen/lib/transport/PersistentQuicPskCache.h>
 
 #include <folly/io/async/EventBase.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/ConnIdLogger.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/TrafficGenerator.h>
+#include <proxygen/fbtcp_trafficgen/ConnIdLogger.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/TrafficGenerator.h>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQServer.h>
+#include <proxygen/fbtcp_trafficgen/HQServer.h>
 
 using namespace quic::samples;
 

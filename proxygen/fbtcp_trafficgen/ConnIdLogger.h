@@ -17,7 +17,7 @@
 #include <memory>
 #include <string>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
 
 namespace proxygen {
 

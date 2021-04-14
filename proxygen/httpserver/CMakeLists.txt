@@ -148,39 +148,6 @@ if (BUILD_QUIC)
       EXPORT proxygen-exports
       DESTINATION bin
   )
-  add_executable(fbtcp_trafficgen
-      samples/fbtcp_trafficgen/main.cpp
-      samples/fbtcp_trafficgen/FizzContext.cpp
-      samples/fbtcp_trafficgen/HQLoggerHelper.cpp
-      samples/fbtcp_trafficgen/HQParams.cpp
-      samples/fbtcp_trafficgen/HQServer.cpp
-      samples/fbtcp_trafficgen/PartiallyReliableCurlClient.cpp
-      samples/fbtcp_trafficgen/SampleHandlers.cpp
-      samples/fbtcp_trafficgen/TrafficGenerator.cpp
-      samples/fbtcp_trafficgen/TGConnection.cpp
-      samples/fbtcp_trafficgen/GETHandler.cpp
-      samples/fbtcp_trafficgen/Utils.cpp
-  )
-  target_compile_options(
-      fbtcp_trafficgen
-      PRIVATE
-          ${_PROXYGEN_COMMON_COMPILE_OPTIONS}
-  )
-  target_link_libraries(
-      fbtcp_trafficgen
-      PUBLIC
-          proxygen
-          proxygencurl
-          proxygenhttpserver
-          mvfst::mvfst_transport
-          mvfst::mvfst_client
-          mvfst::mvfst_server
-  )
-  install(
-      TARGETS fbtcp_trafficgen
-      EXPORT proxygen-exports
-      DESTINATION bin
-  )
 endif()
 
 file(

@@ -1,4 +1,4 @@
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/Utils.h>
+#include <proxygen/fbtcp_trafficgen/Utils.h>
 
 #include <iostream>
 

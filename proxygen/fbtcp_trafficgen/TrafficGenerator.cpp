@@ -15,10 +15,10 @@
 #include <folly/io/async/ScopedEventBaseThread.h>
 #include <folly/json.h>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/FizzContext.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/InsecureVerifierDangerousDoNotUseInProduction.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/TrafficGenerator.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/Utils.h>
+#include <proxygen/fbtcp_trafficgen/FizzContext.h>
+#include <proxygen/fbtcp_trafficgen/InsecureVerifierDangerousDoNotUseInProduction.h>
+#include <proxygen/fbtcp_trafficgen/TrafficGenerator.h>
+#include <proxygen/fbtcp_trafficgen/Utils.h>
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
 
 #include <quic/client/QuicClientTransport.h>

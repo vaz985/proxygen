@@ -12,9 +12,9 @@
 #include <memory>
 #include <mutex>
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/GETHandler.h>
+#include <proxygen/fbtcp_trafficgen/HQLoggerHelper.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
 
 #include <proxygen/lib/http/session/HQUpstreamSession.h>
 #include <proxygen/lib/http/session/HTTPSessionBase.h>

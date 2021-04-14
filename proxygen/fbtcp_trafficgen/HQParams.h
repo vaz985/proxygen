@@ -16,7 +16,7 @@
 #include <folly/Optional.h>
 #include <folly/SocketAddress.h>
 #include <proxygen/httpserver/HTTPServerOptions.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/GETHandler.h>
+#include <proxygen/fbtcp_trafficgen/GETHandler.h>
 #include <proxygen/lib/http/HTTPHeaders.h>
 #include <proxygen/lib/http/HTTPMethod.h>
 #include <quic/QuicConstants.h>

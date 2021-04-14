@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQServer.h>
+#include <proxygen/fbtcp_trafficgen/HQServer.h>
 
 #include <ostream>
 #include <string>
@@ -19,11 +19,11 @@
 #include <proxygen/httpserver/HTTPServer.h>
 #include <proxygen/httpserver/HTTPTransactionHandlerAdaptor.h>
 #include <proxygen/httpserver/RequestHandlerFactory.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/FizzContext.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQLoggerHelper.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/HQParams.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/SampleHandlers.h>
-#include <proxygen/httpserver/samples/fbtcp_trafficgen/Utils.h>
+#include <proxygen/fbtcp_trafficgen/FizzContext.h>
+#include <proxygen/fbtcp_trafficgen/HQLoggerHelper.h>
+#include <proxygen/fbtcp_trafficgen/HQParams.h>
+#include <proxygen/fbtcp_trafficgen/SampleHandlers.h>
+#include <proxygen/fbtcp_trafficgen/Utils.h>
 #include <proxygen/lib/http/session/HQDownstreamSession.h>
 #include <proxygen/lib/http/session/HTTPSessionController.h>
 #include <proxygen/lib/utils/WheelTimerInstance.h>
@@ -182,7 +182,7 @@ QuicServerTransport::Ptr HQServerTransportFactory::make(
 
   // Add sampling rate here?
   if (obs_ && (samplingRate_(gen) <= params_.samplingRate)) {
-    transport->addInstrumentationObserver(obs_.get_pointer());
+    transport->addObserver(obs_.get_pointer());
   }
 
   if (!params_.qLoggerPath.empty()) {
@@ -450,7 +450,7 @@ void ConnectionObserver::observerDetach(QuicSocket* sock) noexcept {
   row.push_back(std::to_string(tinfo.totalPacketsMarkedLostByPto));
   row.push_back(
       std::to_string(tinfo.totalPacketsMarkedLostByReorderingThreshold));
-  row.push_back(std::to_string(tinfo.packetsSpuriouslyLost));
+  row.push_back(std::to_string(tinfo.totalPacketsSpuriouslyMarkedLost));
   row.push_back(std::to_string(tinfo.timeoutBasedLoss));
   row.push_back(std::to_string(tinfo.pto.count()));
   row.push_back(std::to_string(tinfo.bytesSent));
@@ -465,7 +465,7 @@ void ConnectionObserver::observerDetach(QuicSocket* sock) noexcept {
 }
 
 void ConnectionObserver::rttSampleGenerated(
-    QuicSocket* sock, const quic::InstrumentationObserver::PacketRTT& pktRTT) {
+    QuicSocket* sock, const quic::Observer::PacketRTT& pktRTT) {
   // Lets skip high inflightBytes
   uint64_t inflightBytes = pktRTT.metadata.inflightBytes;
   if (inflightBytes > 0) {
@@ -506,7 +506,7 @@ void ConnectionObserver::rttSampleGenerated(
   row.push_back(std::to_string(tinfo.totalPacketsMarkedLostByPto));
   row.push_back(
       std::to_string(tinfo.totalPacketsMarkedLostByReorderingThreshold));
-  row.push_back(std::to_string(tinfo.packetsSpuriouslyLost));
+  row.push_back(std::to_string(tinfo.totalPacketsSpuriouslyMarkedLost));
   row.push_back(std::to_string(tinfo.timeoutBasedLoss));
   row.push_back(std::to_string(tinfo.pto.count()));
   row.push_back(std::to_string(tinfo.bytesSent));
